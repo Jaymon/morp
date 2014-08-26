@@ -1,10 +1,16 @@
-import urlparse
+import dsnparse
+
 
 class Connection(object):
     """The base connection class, you will most likely always use DsnConnection"""
-
     name = ""
     """string -- the name of this connection, handy when you have more than one used interface (eg, nsq)"""
+
+    username = ""
+    """the username (if needed)"""
+
+    password = ""
+    """the password (if needed)"""
 
     hosts = None
     """list -- a list of (hostname, port) tuples"""
@@ -29,7 +35,7 @@ class Connection(object):
         print c.port # 5000
         print c.options # {"some_random_thing": "foo"}
         """
-        self.options = {}
+        self.options = kwargs.pop('options', {})
         self.hosts = []
 
         for key, val in kwargs.iteritems():
@@ -49,52 +55,36 @@ class DsnConnection(Connection):
     """
     Create a connection object from a dsn in the form
 
-        InterfaceName://host1:port1+host2:port2?opt1=val1&opt2=val2#connection_name
+        InterfaceName://username:password@host:port?opt1=val1&opt2=val2#connection_name
 
-    example -- connect to nsq with 2 lookupd instances
+    example -- connect to amazon SQS
 
-        morp.interface.nsq.Nsq://host1.com:4161+host2.com:4161#nsq
+        morp.interface.sqs.SQS://AWS_ID:AWS_KEY@
     """
     def __init__(self, dsn):
 
         d = {'options': {}, 'hosts': []}
+        p = dsnparse.parse(dsn)
 
         # get the scheme, which is actually our interface_name
-        first_colon = dsn.find(u':')
-        d['interface_name'] = dsn[0:first_colon]
-        dsn_url = dsn[first_colon+1:]
+        d['interface_name'] = p.scheme
+
         dsn_hosts = []
+        if p.hostname:
+            d['hosts'].append((p.hostname, getattr(p, 'port', None)))
 
-        dsn_bits = dsn_url.split(u'?')
-        dsn_hosts = dsn_bits[0].split(u'+')
-        if len(dsn_bits) == 2:
-            dsn_hosts[-1] += u'?' + dsn_bits[1]
+        # parse the query into options, multiple dsns
+        if p.query:
+            d['options'] = p.query
 
-        for dsn_host in dsn_hosts:
-            if not dsn_host.startswith(u'//'):
-                dsn_host = u'//' + dsn_host
+        if p.username:
+            d['username'] = p.username
 
-            url = urlparse.urlparse(dsn_host)
+        if p.password:
+            d['password'] = p.password
 
-            # parse the query into options, multiple dsns
-            if url.query:
-                for k, kv in urlparse.parse_qs(url.query, True).iteritems():
-                    if len(kv) > 1:
-                        self.options[k] = kv
-                        d['options'][k] = kv
-                    else:
-                        d['options'][k] = kv[0]
-
-            d['hosts'].append((url.hostname, getattr(url, 'port', None)))
-
-            if url.username:
-                d['username'] = url.username
-
-            if url.password:
-                d['password'] = url.password
-
-            if url.fragment:
-                d['name'] = url.fragment
+        if p.fragment:
+            d['name'] = p.fragment
 
         super(DsnConnection, self).__init__(**d)
 

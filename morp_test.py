@@ -5,14 +5,14 @@ import threading
 import time
 from Queue import Queue
 
-import nsq
+#import nsq
 from pyt import TestCase, Assert
 
 import morp
 from morp import Message, Connection
-from morp.interface.nsq import Nsq
+#from morp.interface.nsq import Nsq
 from morp import interface
-import morp.nsq
+#import morp.nsq
 
 # configure root logger
 logger = logging.getLogger()
@@ -89,43 +89,28 @@ class ConnectionTest(TestCase):
                 )
             ),
             (
-                'module.Classname://host1.com:1000+host2.com:2000+host3.com:3000',
+                "morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?read_lock=120",
                 dict(
-                    hosts=[('host1.com', 1000), ('host2.com', 2000), ('host3.com', 3000)],
-                    interface_name='module.Classname',
+                    username='AWS_ID',
+                    password='AWS_KEY',
+                    interface_name='morp.interface.sqs.SQS',
+                    options={'read_lock': '120'}
                 )
             ),
             (
-                'module.Classname://host1.com:1000+host2.com:2000#foo',
+                "morp.interface.sqs.SQS://AWS_ID:AWS_KEY@",
                 dict(
-                    hosts=[('host1.com', 1000), ('host2.com', 2000)],
-                    interface_name='module.Classname',
-                    name="foo"
+                    username='AWS_ID',
+                    password='AWS_KEY',
+                    interface_name='morp.interface.sqs.SQS',
+                    options={}
                 )
-            ),
-            (
-                'module.Classname://host1.com:1000+host2.com:2000?foo=bar',
-                dict(
-                    hosts=[('host1.com', 1000), ('host2.com', 2000)],
-                    interface_name='module.Classname',
-                    options={"foo": "bar"},
-                )
-            ),
-            (
-                'module.Classname://host1.com:1000+host2.com:2000?foo=bar&bar=che#name',
-                dict(
-                    hosts=[('host1.com', 1000), ('host2.com', 2000)],
-                    interface_name='module.Classname',
-                    options={"foo": "bar", "bar": "che"},
-                    name="name"
-                )
-            ),
+            )
         ]
 
         for t in tests:
             c = morp.DsnConnection(t[0])
-            a = Assert(c)
-            a ** t[1]
+            pout.v(c)
 
 
 class NsqTest(TestCase):

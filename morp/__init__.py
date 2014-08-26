@@ -9,6 +9,7 @@ __version__ = '0.1'
 interfaces = {}
 """holds all configured interfaces"""
 
+
 def configure(dsn):
     """configure a connection from the passed in dsn"""
     raise RuntimeError("this needs to be refactored")
@@ -18,16 +19,19 @@ def configure(dsn):
     i_classname = interface.get_class(c.interface_name)
     set_interface(c.name, i_classname(c))
 
+
 def get_interface(connection_name=""):
     """get the configured interface that corresponds to connection_name"""
     global interfaces
     i = interfaces[connection_name]
     return i
 
+
 def set_interface(connection_name, interface):
     """bind an .interface.Interface() instance to connection_name"""
     global interfaces
     interfaces[connection_name] = interface
+
 
 def consume(message_names=None, connection_name=""):
     """begin consume the messages with the given message_names, use connection_name to consume them"""
@@ -42,18 +46,18 @@ class Message(object):
     to add a new message to your application, just subclass this class
 
         # in some script, create and send our new Foo message
-        class FooMsg(Message):
+        class Foofields(Message):
             def handle(self):
                 # all sent messages will end up in this method to be processed
                 print self.bar
                 pass
 
-        f = FooMsg()
+        f = Foofields()
         f.bar = "some value"
         f.send()
 
         # in some other script consume our Foo messages
-        morp.consume('Foo') # this will call FooMsg.handle() for every FooMsg received
+        morp.consume('Foo') # this will call Foofields.handle() for every FooMsg received
     """
 
     connection_name = ""
@@ -62,11 +66,23 @@ class Message(object):
     name = ""
     """the message name (this is usually the topic or whatnot where the message should be sent)"""
 
-    msg = None
+    fields = None
     """holds the actual message that will be sent"""
 
-    interface_msg = None
+    interface_fields = None
     """this holds the raw message that is returned from a message handler, it is None on send, set on receive"""
+    # TODO -- a message lifetime will go through various states, when it is first
+    # created it will be UNSENT, after sending, then it will be SENT, that is the
+    # last state that message can be in, when a message is received, then it will be
+    # UNACKED, and once completed, it will be ACKED, which means it cannot be sent
+    # or received again
+    # I think ideal is:
+    #    with Foo.recv() as f:
+    #        # f.ack() will be called at the end
+    STATE_UNSENT = 1
+    STATE_SENT = 2
+    STATE_UNACKED = 3
+    STATE_ACKED = 4
 
     @decorators.classproperty
     def interface(cls):
@@ -76,44 +92,57 @@ class Message(object):
     def class_name(cls):
         return ".".join([cls.__module__, cls.__name__])
 
-    def __init__(self, name="", **msg_kwargs):
-        if name:
-            self.name = name
-        else:
-            self.name = self.__class__.__name__
-
-        self.msg = msg_kwargs
+    def __init__(self, fields=None, **fields_kwargs):
+        self.fields = self._normalize_dict(fields, fields_kwargs)
 
     def __getattr__(self, key):
         if hasattr(self.__class__, key):
             return super(Message, self).__getattr__(key)
         else:
-            return self.msg[key]
+            return self.fields[key]
 
     def __setattr__(self, key, val):
         if hasattr(self.__class__, key):
             super(Message, self).__setattr__(key, val)
         else:
-            self.msg[key] = val
+            self.fields[key] = val
 
     def __setitem__(self, key, val):
-        self.msg[key] = val
+        self.fields[key] = val
 
     def __getitem__(self, key):
-        return self.msg[key]
+        return self.fields[key]
 
     def __contains__(self, key):
-        return key in self.msg
+        return key in self.fields
 
     def send(self):
         """send the message using the configured interface for this class"""
         i = self.interface
         return i.send(self)
 
-    def handle(self):
-        """all consumed messages will have this method called when the message is received"""
-        raise NotImplementedError("To Process {} messages override this method".format(self.name))
+    def get_name(self):
+        name = self.name
+        if not name:
+            name = self.__class__.__name__
+        return name
 
-    def __str__(self):
-        return "{} - {}".format(self.name, self.msg)
+    @classmethod
+    def create(cls, fields=None, **fields_kwargs):
+        """
+        create an instance of cls with the passed in fields and set it into the db
+        fields -- dict -- field_name keys, with their respective values
+        **fields_kwargs -- dict -- if you would rather pass in fields as name=val, that works also
+        """
+        instance = cls(fields, **fields_kwargs)
+        return instance
+
+    @classmethod
+    def _normalize_dict(cls, fields, fields_kwargs):
+        """lot's of methods take a dict or kwargs, this combines those"""
+        if not fields: fields = {}
+        if fields_kwargs:
+            fields.update(fields_kwargs)
+
+        return fields
 
