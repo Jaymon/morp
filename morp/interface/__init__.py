@@ -2,12 +2,6 @@ import importlib
 import logging
 import sys
 from contextlib import contextmanager
-import base64
-
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
 
 from ..exception import InterfaceError
 
@@ -51,25 +45,17 @@ def get_class(full_python_class_path):
     """
     module_name, class_name = full_python_class_path.rsplit('.', 1)
     m = importlib.import_module(module_name)
-    c = None
-    try:
-        c = getattr(m, class_name)
-    except AttributeError:
-        import inspect
-        #cs = inspect.getmembers(m, inspect.isclass)
-        cs = inspect.getmembers(m)
-
-    return c
+    return getattr(m, class_name)
 
 
 class InterfaceMessage(object):
     """this is a thin wrapper around all received interface messages"""
-    def __init__(self, msg, raw_msg):
+    def __init__(self, fields, raw_msg):
         """
-        msg -- mixed -- the original message you passed to the Interface send method
+        fields -- dict -- the original fields you passed to the Interface send method
         raw_msg -- mixed -- this is the raw message the interface returned
         """
-        self.msg = msg
+        self.fields = fields
         self.raw_msg = raw_msg
 
 
@@ -79,18 +65,15 @@ class Interface(object):
     connected = False
     """true if a connection has been established, false otherwise"""
 
-    connection = None
-    """hold the actual raw connection to the db"""
-
     connection_config = None
     """a config.Connection() instance"""
 
     def __init__(self, connection_config=None):
         self.connection_config = connection_config
 
+    def _connect(self, connection_config): raise NotImplementedError()
     def connect(self, connection_config=None):
-        """
-        connect to the interface
+        """connect to the interface
 
         this will set the raw db connection to self.connection
         """
@@ -109,14 +92,11 @@ class Interface(object):
 
         return self.connected
 
-    def _connect(self, connection_config):
-        """this *MUST* set the self.connection attribute"""
-        raise NotImplementedError()
-
     def free_connection(self, connection): pass
 
     def get_connection(self): raise NotImplementedError()
 
+    def _close(self): raise NotImplementedError()
     def close(self):
         """
         close an open connection
@@ -126,8 +106,6 @@ class Interface(object):
         self._close()
         self.connected = False
         self.log("Closed Connection")
-
-    def _close(self): raise NotImplementedError()
 
     @contextmanager
     def connection(self, connection=None, **kwargs):
@@ -150,59 +128,48 @@ class Interface(object):
         except Exception as e:
             self.raise_error(e)
 
-    def send(self, name, msg, **kwargs):
+    def _send(self, name, fields, connection, **kwargs): raise NotImplementedError()
+    def send(self, name, fields, **kwargs):
+        """send a message to message queue name"""
         with self.connection(**kwargs) as connection:
-            msg_str = self.normalize_message(msg)
-            self._send(name, msg_str, connection=connection)
-            self.log("Message sent to {} -- {}", name, msg)
+            self._send(name, fields, connection=connection)
+            self.log("Message sent to {} -- {}", name, fields)
 
-    def _send(self, name, msg_str, connection, **kwargs): raise NotImplementedError()
-
-    def normalize_message(self, msg):
-        return base64.b64encode(pickle.dumps(msg, pickle.HIGHEST_PROTOCOL))
-
-    def denormalize_message(self, msg_str):
-        return pickle.loads(base64.b64decode(msg_str))
-
+    def _count(self, names, connection, **kwargs): raise NotImplementedError()
     def count(self, name, **kwargs):
+        """count how many messages are in queue name"""
         with self.connection(**kwargs) as connection:
             ret = int(self._count(name, connection=connection))
             return ret
 
-    def _count(self, names, connection, **kwargs): raise NotImplementedError()
-
+    def _recv(self, name, connection, **kwargs): raise NotImplementedError()
     def recv(self, name, **kwargs):
-        """receive a message
+        """receive a message from queue name
 
-        return -- tuple -- (msg, interface_msg) -- the msg is the original message
-        you passed in, the interface_message is the wrapper most interfaces 
+        return -- InterfaceMessage() -- an instance containing fields and raw_msg
         """
         with self.connection(**kwargs) as connection:
-            msg_str, raw_msg = self._recv(name, connection=connection)
-            msg = self.denormalize_message(msg_str)
-            self.log("Message received from {} -- {}", name, msg)
-            return InterfaceMessage(msg, raw_msg)
+            fields, raw_msg = self._recv(name, connection=connection)
+            self.log("Message received from {} -- {}", name, fields)
+            return InterfaceMessage(fields, raw_msg)
 
-    def _recv(self, name, connection, **kwargs): raise NotImplementedError()
-
+    def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
     def ack(self, name, interface_msg, **kwargs):
         """this will acknowledge that the interface message was received successfully
 
         an interface_msg is different from a message passed to self.send(), it is
-        the InterfaceMessage instance that self.recv() returns
+        the InterfaceMessage() instance that self.recv() returns
         """
         with self.connection(**kwargs) as connection:
             self._ack(name, interface_msg, connection=connection)
-            self.log("Message acked from {} -- {}", name, interface_msg.msg)
+            self.log("Message acked from {} -- {}", name, interface_msg.fields)
 
-    def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
-
+    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
     def clear(self, name, **kwargs):
+        """cliear the queue name"""
         with self.connection(**kwargs) as connection:
             self._clear(name, connection=connection)
             self.log("Messages cleared from {}", name)
-
-    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
 
     def log(self, format_str, *format_args, **log_options):
         """

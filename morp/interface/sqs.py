@@ -1,12 +1,8 @@
 from __future__ import absolute_import # needed to import official nsq
-import urllib2
-import urllib
-import json
 from contextlib import contextmanager
 
 import boto.sqs
-#from boto.sqs.connection import SQSConnection
-from boto.sqs.message import Message
+from boto.sqs.jsonmessage import JSONMessage
 
 from . import Interface
 
@@ -15,7 +11,7 @@ class SQS(Interface):
     _connection = None
 
     def _connect(self, connection_config):
-        region = connection_config.options.get('region', 'us-west-2')
+        region = connection_config.options.get('region', 'us-west-1')
         self._connection = boto.sqs.connect_to_region(
             region,
             aws_access_key_id=connection_config.username,
@@ -39,16 +35,16 @@ class SQS(Interface):
                 name,
                 self.connection_config.options.get('read_lock', 360)
             )
+            q.set_message_class(JSONMessage)
 
             yield q
 
         except Exception as e:
             self.raise_error(e)
 
-    def _send(self, name, msg_str, connection, **kwargs):
+    def _send(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
-            m = Message()
-            m.set_body(msg_str)
+            m = q.new_message(body=fields)
             q.write(m)
 
     def _count(self, name, connection, **kwargs):

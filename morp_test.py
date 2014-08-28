@@ -7,8 +7,6 @@ from unittest import TestCase
 
 import testdata
 
-from pyt import Assert # TODO -- remove
-
 #import morp
 from morp import Message, Connection, DsnConnection
 from morp.interface.sqs import SQS
@@ -46,7 +44,7 @@ class BaseInterfaceTestCase(TestCase):
         return 'morp-test-sqs'
 
 
-class SQSInterfaceTest(TestCase):
+class SQSInterfaceTest(BaseInterfaceTestCase):
     interface_class = SQS
     def test_send_count_recv(self):
         i = self.get_interface()
@@ -59,10 +57,34 @@ class SQSInterfaceTest(TestCase):
         # re-connect to receive the message
         i2 = self.get_interface()
         m2 = i2.recv(n)
-        self.assertEqual(d, m2.msg)
+        self.assertEqual(d, m2.fields)
 
         i2.ack(n, m2)
         self.assertEqual(0, i.count(n))
+
+
+class MessageTest(BaseInterfaceTestCase):
+    interface_class = SQS
+    def get_name(self):
+        return 'morp-test-message'
+
+    def get_msg(self):
+        class TMsg(Message):
+            interface = self.get_interface()
+            @classmethod
+            def get_name(cls): return self.get_name()
+
+        m = TMsg()
+        return m
+
+    def test_send_recv(self):
+        m = self.get_msg()
+        m.foo = 1
+        m.bar = 2
+        m.send()
+
+        with m.__class__.recv() as m2:
+            self.assertEqual(m.fields, m2.fields)
 
 
 class ConnectionTest(TestCase):
@@ -116,75 +138,8 @@ class ConnectionTest(TestCase):
         ]
 
         for t in tests:
-            c = morp.DsnConnection(t[0])
-            self.assertEqual(t[1], )
-
-
-class MessageTest(BaseInterfaceTestCase):
-    interface_class = SQS
-    def get_name(self):
-        return 'morp-test-message'
-
-    def get_msg(self):
-        class TMsg(Message):
-            interface = self.get_interface()
-            @classmethod
-            def get_name(cls): return self.get_name()
-
-        m = TMsg()
-        return m
-
-    def test_send_recv(self):
-        m = self.get_msg()
-        m.foo = 1
-        m.bar = 2
-        m.send()
-
-        with m.__class__.recv() as m2:
-            self.assertEqual(m.fields, m2.fields)
-
-    def test_general(self):
-        m = Message("foo")
-        a = Assert(m)
-
-        m.bar = 1
-        m.che = "this is a string"
-
-        a.name == "foo"
-        a.bar == 1
-        a['bar'] == 1
-        a.che == "this is a string"
-        a['che'] == "this is a string"
-
-        a.msg ** dict(bar=1, che="this is a string")
-
-        with Assert(KeyError):
-            a['msg']
-
-        a = Assert(Message())
-        a.name == "Message"
-        a.class_name == "morp.Message"
-
-        class TestGeneralMessage(Message): pass
-        a = Assert(TestGeneralMessage())
-        a.name == "TestGeneralMessage"
-        a.class_name == "morp_test.TestGeneralMessage"
-
-    def test_send(self):
-
-        i = get_interface()
-
-        m = TestMsg()
-        m.foo = 1
-        m.bar = 2
-        m.send()
-
-
-class InterfaceTest(TestCase):
-
-    def test_get_class(self):
-        m = TestMsg()
-        c = interface.get_class(m.class_name)
-        Assert(m) % c
+            c = DsnConnection(t[0])
+            for k, v in t[1].items():
+                self.assertEqual(v, getattr(c, k))
 
 

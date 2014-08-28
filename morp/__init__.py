@@ -5,7 +5,7 @@ from .config import DsnConnection, Connection
 from . import decorators
 from .interface import get_interface, set_interface, get_interfaces, get_class
 
-__version__ = '0.1'
+__version__ = '0.2'
 
 def configure_environ(dsn_env_name='MORP_DSN'):
     """
@@ -111,17 +111,17 @@ class Message(object):
         return i.send(self.get_name(), self.fields, **kwargs)
 
     @classmethod
+    def get_name(cls):
+        return cls.__name__
+
+    @classmethod
     @contextmanager
     def recv(cls, **kwargs):
         i = cls.interface
         name = cls.get_name()
         interface_msg = i.recv(name, **kwargs)
-        yield cls.create(interface_msg.msg)
+        yield cls.create(interface_msg.fields)
         i.ack(name, interface_msg)
-
-    @classmethod
-    def get_name(cls):
-        return cls.__name__
 
     @classmethod
     def create(cls, fields=None, **fields_kwargs):
