@@ -1,8 +1,8 @@
 import importlib
 import logging
-import json
-import types
+import sys
 from contextlib import contextmanager
+import base64
 
 try:
     import cPickle as pickle
@@ -13,6 +13,27 @@ from ..exception import InterfaceError
 
 
 logger = logging.getLogger(__name__)
+
+
+interfaces = {}
+"""holds all configured interfaces"""
+
+
+def get_interfaces():
+    return interfaces
+
+
+def get_interface(connection_name=""):
+    """get the configured interface that corresponds to connection_name"""
+    global interfaces
+    i = interfaces[connection_name]
+    return i
+
+
+def set_interface(connection_name, interface):
+    """bind an .interface.Interface() instance to connection_name"""
+    global interfaces
+    interfaces[connection_name] = interface
 
 
 def get_class(full_python_class_path):
@@ -39,6 +60,17 @@ def get_class(full_python_class_path):
         cs = inspect.getmembers(m)
 
     return c
+
+
+class InterfaceMessage(object):
+    """this is a thin wrapper around all received interface messages"""
+    def __init__(self, msg, raw_msg):
+        """
+        msg -- mixed -- the original message you passed to the Interface send method
+        raw_msg -- mixed -- this is the raw message the interface returned
+        """
+        self.msg = msg
+        self.raw_msg = raw_msg
 
 
 class Interface(object):
@@ -104,6 +136,7 @@ class Interface(object):
                 yield connection
 
             else:
+                if not self.connected: self.connect()
                 try:
                     connection = self.get_connection()
                     yield connection
@@ -118,29 +151,58 @@ class Interface(object):
             self.raise_error(e)
 
     def send(self, name, msg, **kwargs):
-
         with self.connection(**kwargs) as connection:
             msg_str = self.normalize_message(msg)
             self._send(name, msg_str, connection=connection)
             self.log("Message sent to {} -- {}", name, msg)
 
-    def _send(self, name, msg_str, **kwargs):
-        raise NotImplementedError()
+    def _send(self, name, msg_str, connection, **kwargs): raise NotImplementedError()
 
     def normalize_message(self, msg):
-        return pickle.dumps(msg, pickle.HIGHEST_PROTOCOL)
+        return base64.b64encode(pickle.dumps(msg, pickle.HIGHEST_PROTOCOL))
 
     def denormalize_message(self, msg_str):
-        return pickle.loads(msg_str)
+        return pickle.loads(base64.b64decode(msg_str))
+
+    def count(self, name, **kwargs):
+        with self.connection(**kwargs) as connection:
+            ret = int(self._count(name, connection=connection))
+            return ret
+
+    def _count(self, names, connection, **kwargs): raise NotImplementedError()
 
     def recv(self, name, **kwargs):
+        """receive a message
+
+        return -- tuple -- (msg, interface_msg) -- the msg is the original message
+        you passed in, the interface_message is the wrapper most interfaces 
+        """
         with self.connection(**kwargs) as connection:
-            msg_str = self._recv(name, connection=connection)
+            msg_str, raw_msg = self._recv(name, connection=connection)
             msg = self.denormalize_message(msg_str)
             self.log("Message received from {} -- {}", name, msg)
+            return InterfaceMessage(msg, raw_msg)
 
-    def _recv(self, names, **kwargs):
-        raise NotImplementedError()
+    def _recv(self, name, connection, **kwargs): raise NotImplementedError()
+
+    def ack(self, name, interface_msg, **kwargs):
+        """this will acknowledge that the interface message was received successfully
+
+        an interface_msg is different from a message passed to self.send(), it is
+        the InterfaceMessage instance that self.recv() returns
+        """
+        with self.connection(**kwargs) as connection:
+            self._ack(name, interface_msg, connection=connection)
+            self.log("Message acked from {} -- {}", name, interface_msg.msg)
+
+    def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
+
+    def clear(self, name, **kwargs):
+        with self.connection(**kwargs) as connection:
+            self._clear(name, connection=connection)
+            self.log("Messages cleared from {}", name)
+
+    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
 
     def log(self, format_str, *format_args, **log_options):
         """
@@ -153,13 +215,17 @@ class Interface(object):
         """
         log_level = log_options.get('level', logging.DEBUG)
         if logger.isEnabledFor(log_level):
-            if isinstance(format_str, Exception):
-                logger.exception(format_str, *format_args)
-            else:
-                if format_args:
-                    logger.log(log_level, format_str.format(*format_args))
+            try:
+                if isinstance(format_str, Exception):
+                    logger.exception(format_str, *format_args)
                 else:
-                    logger.log(log_level, format_str)
+                    if format_args:
+                        logger.log(log_level, format_str.format(*format_args))
+                    else:
+                        logger.log(log_level, format_str)
+
+            except UnicodeError as e:
+                logger.error("Unicode error while logging", exc_info=True)
 
     def raise_error(self, e, exc_info=None):
         """this is just a wrapper to make the passed in exception an InterfaceError"""

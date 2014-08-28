@@ -2,105 +2,71 @@ from __future__ import absolute_import # needed to import official nsq
 import urllib2
 import urllib
 import json
+from contextlib import contextmanager
 
-from boto.sqs.connection import SQSConnection
+import boto.sqs
+#from boto.sqs.connection import SQSConnection
 from boto.sqs.message import Message
 
 from . import Interface
 
 class SQS(Interface):
 
-    default_host = "127.0.0.1"
-
-    default_port = 4150
-
-    default_channel = 'default'
-
     _connection = None
 
     def _connect(self, connection_config):
-        self._connection = SQSConnection(
-            connection_config.username,
-            connection_config.password
+        region = connection_config.options.get('region', 'us-west-2')
+        self._connection = boto.sqs.connect_to_region(
+            region,
+            aws_access_key_id=connection_config.username,
+            aws_secret_access_key=connection_config.password
         )
 
+    def get_connection(self):
+        return self._connection
 
     def _close(self):
-        self.connection.s.close()
+        """I can't find a close in the docs, so not doing anything
 
-    def assure(self):
-        """handle any things that need to be done before a query can be performed"""
-        self.connect()
+        https://boto.readthedocs.org/en/latest/ref/sqs.html
+        """
+        self._connection = None
 
-    def _send(self, name, msg_str):
-        self.connection.send(nsq.pub(name, msg_str))
-
-    def _consume(self, message_names):
-        readers = []
-        lookupd_poll_interval = self.connection_config.get_option('lookupd_poll_interval', 1)
-        hosts = self.get_http_hosts()
-        if not message_names:
-            message_names = self.get_topics()
-
-        for mn in message_names:
-            topic, channels = self.normalize_topic(mn)
-            for channel in channels:
-                self.log("start consume {}.{}", topic, channel)
-                readers.append(nsq.Reader(
-                    message_handler=self.handle,
-                    lookupd_http_addresses=hosts,
-                    topic=topic,
-                    channel=channel,
-                    lookupd_poll_interval=15
-                ))
-
-        #nsq.run()
-        nsq.tornado.ioloop.IOLoop.instance().start()
-
-    def handle(self, interface_msg):
-        """callback for the nsq ioloop"""
-        r = True
-        message = self.denormalize_message(interface_msg.body)
-        message.interface_msg = interface_msg
+    @contextmanager
+    def queue(self, name, connection, **kwargs):
         try:
-            r = message.handle()
-            if r is None:
-                r = True
-        except Exception, e:
-            self.log(e)
-            r = False
+            q = connection.create_queue(
+                name,
+                self.connection_config.options.get('read_lock', 360)
+            )
 
-        return r
+            yield q
 
-    def normalize_topic(self, message_name):
-        """we allow topic.channel_name to be passed in, this will split message_name into its topic, channels"""
-        topic = message_name
-        channels = set([self.default_channel])
-        bits = filter(None, message_name.split('.'))
-        if bits:
-            topic = bits[0]
-            channels |= set(bits[1:])
+        except Exception as e:
+            self.raise_error(e)
 
-        return topic, channels
+    def _send(self, name, msg_str, connection, **kwargs):
+        with self.queue(name, connection) as q:
+            m = Message()
+            m.set_body(msg_str)
+            q.write(m)
 
-    def get_http_hosts(self):
-        """
-        get the hosts that will be used
+    def _count(self, name, connection, **kwargs):
+        ret = 0
+        with self.queue(name, connection) as q:
+            ret = q.count()
+        return ret
 
-        TODO -- make this work with ssl
-        """
-        return ["http://{}".format(netloc) for netloc in self.connection_config.get_netlocs(4161)]
+    def _clear(self, name, connection, **kwargs):
+        with self.queue(name, connection) as q:
+            q.clear()
 
-    def get_topics(self):
-        """get all the topics from all the lookupd instances"""
-        topics = set()
-        for url in self.get_http_hosts():
-            url = "{}/topics".format(url)
-            response = urllib2.urlopen(url)
-            if response.code == 200:
-                body = json.loads(response.read())
-                topics |= set(body['data']['topics'])
+    def _recv(self, name, connection, **kwargs):
+        with self.queue(name, connection) as q:
+            raw_msg = q.get_messages(1)[0]
+            return raw_msg.get_body(), raw_msg
 
-        return topics
-
+    def _ack(self, name, interface_msg, connection, **kwargs):
+        with self.queue(name, connection) as q:
+            q.delete_message(interface_msg.raw_msg)
 

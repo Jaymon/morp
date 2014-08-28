@@ -1,18 +1,18 @@
 #from unittest import TestCase
 import logging
 import sys
-import threading
 import time
-from Queue import Queue
+import os
+from unittest import TestCase
 
-#import nsq
-from pyt import TestCase, Assert
+import testdata
 
-import morp
-from morp import Message, Connection
-#from morp.interface.nsq import Nsq
-from morp import interface
-#import morp.nsq
+from pyt import Assert # TODO -- remove
+
+#import morp
+from morp import Message, Connection, DsnConnection
+from morp.interface.sqs import SQS
+
 
 # configure root logger
 logger = logging.getLogger()
@@ -22,41 +22,48 @@ log_formatter = logging.Formatter('[%(levelname)s] %(message)s')
 log_handler.setFormatter(log_formatter)
 logger.addHandler(log_handler)
 
-def consume_messages(message_names=None):
-    """starts consuming messages in another thread"""
-    def run():
-        i = get_interface()
-        i.consume(message_names)
+logger = logging.getLogger('boto')
+logger.setLevel(logging.WARNING)
 
-    thread = threading.Thread(target=run)
-    thread.daemon = True
-    thread.start()
 
-def get_interface(connection_name=""):
-    """get a connected interface"""
-    i = None
-    try:
-        i = morp.get_interface(connection_name)
+class BaseInterfaceTestCase(TestCase):
+    interface_class = None
+    def setUp(self):
+        i = self.get_interface()
+        n = self.get_name()
+        i.clear(n)
 
-    except KeyError:
-        c = Connection(hosts=[(Nsq.default_host, Nsq.default_port)])
-        c = Connection(hosts=[("127.0.0.1", 4161)])
-        i = Nsq(c)
+    def get_interface(self, connection_name=""):
+        """get a connected interface"""
+        config = DsnConnection(os.environ['MORP_DSN_1'])
+        i = self.interface_class(config)
         i.connect()
-        a = Assert(i)
-        a.connected == True
-        a.connection != None
-        morp.set_interface(connection_name, i)
+        self.assertTrue(i.connected)
+        return i
 
-    return i
+    def get_name(self):
+        #return 'morp-test-' + testdata.get_ascii(12)
+        return 'morp-test-sqs'
 
-class TestMsg(Message):
-    """the test message class that is useful for making sure messages get passed back and forth"""
 
-    callback = None
+class SQSInterfaceTest(TestCase):
+    interface_class = SQS
+    def test_send_count_recv(self):
+        i = self.get_interface()
+        n = self.get_name()
 
-    def handle(self):
-        self.callback(self)
+        d = {'foo': 1, 'bar': 2}
+        i.send(n, d)
+        self.assertEqual(1, i.count(n))
+
+        # re-connect to receive the message
+        i2 = self.get_interface()
+        m2 = i2.recv(n)
+        self.assertEqual(d, m2.msg)
+
+        i2.ack(n, m2)
+        self.assertEqual(0, i.count(n))
+
 
 class ConnectionTest(TestCase):
 
@@ -110,63 +117,31 @@ class ConnectionTest(TestCase):
 
         for t in tests:
             c = morp.DsnConnection(t[0])
-            pout.v(c)
+            self.assertEqual(t[1], )
 
 
-class NsqTest(TestCase):
+class MessageTest(BaseInterfaceTestCase):
+    interface_class = SQS
+    def get_name(self):
+        return 'morp-test-message'
 
-    def test_connect_and_close(self):
-        #c = morp.Connection(hosts=[("localhost", 4150)])
-        n = get_interface()
+    def get_msg(self):
+        class TMsg(Message):
+            interface = self.get_interface()
+            @classmethod
+            def get_name(cls): return self.get_name()
 
-        n.close()
-        self.assertFalse(n.connected)
-        self.assertIsNone(n.connection)
+        m = TMsg()
+        return m
 
-    def test_denormalize_message(self):
-
-        i = get_interface()
-        m = Message("foo")
+    def test_send_recv(self):
+        m = self.get_msg()
         m.foo = 1
         m.bar = 2
-        m.che = "str"
-        m_str = i.normalize_message(m)
-
-        rm = i.denormalize_message(m_str)
-        a = Assert(rm)
-        a % Message
-        a.foo == m.foo
-        a.bar == m.bar
-        a.che == m.che
-
-    def test_consume_success(self):
-
-        q = Queue()
-        def handle_queue(self, *args):
-            q.put(self)
-
-
-        i = get_interface()
-
-        message_name = "test_consume_success_{}".format(int(time.time()))
-        TestMsg.callback = handle_queue
-        m = TestMsg(message_name)
-        m.foo = 1
         m.send()
 
-        consume_messages([message_name])
-        check_count = 0
-        while check_count < 5 and q.empty():
-            time.sleep(1)
-            check_count += 1
-
-        if q.qsize() > 0:
-            a = Assert(q.get())
-            a.name == m.name
-            a.foo == m.foo
-
-
-class MessageTest(TestCase):
+        with m.__class__.recv() as m2:
+            self.assertEqual(m.fields, m2.fields)
 
     def test_general(self):
         m = Message("foo")

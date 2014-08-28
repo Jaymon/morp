@@ -1,42 +1,67 @@
-import nsq
+import os
+from contextlib import contextmanager
 
 from .config import DsnConnection, Connection
 from . import decorators
-from . import interface
+from .interface import get_interface, set_interface, get_interfaces, get_class
 
 __version__ = '0.1'
 
-interfaces = {}
-"""holds all configured interfaces"""
+def configure_environ(dsn_env_name='MORP_DSN'):
+    """
+    configure interfaces based on environment variables
+
+    by default, when morp is imported, it will look for MORP_DSN, and MORP_DSN_N (where
+    N is 1 through infinity) in the environment, if it finds them, it will assume they
+    are dsn urls that morp understands and will configure connections with them. If you
+    don't want this behavior (ie, you want to configure morp manually) then just make sure
+    you don't have any environment variables with matching names
+
+    The num checks (eg MORP_DSN_1, MORP_DSN_2) go in order, so you can't do MORP_DSN_1, MORP_DSN_3,
+    because it will fail on _2 and move on, so make sure your num dsns are in order (eg, 1, 2, 3, ...)
+
+    dsn_env_name -- string -- the name of the environment variables prefix
+    """
+    if dsn_env_name in os.environ:
+        configure(os.environ[dsn_env_name])
+
+    # now try importing 1 -> N dsns
+    increment_name = lambda name, num: '{}_{}'.format(name, num)
+    dsn_num = 1
+    dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
+    if dsn_env_num_name in os.environ:
+        try:
+            while True:
+                configure(os.environ[dsn_env_num_name])
+                dsn_num += 1
+                dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
+
+        except KeyError:
+            pass
 
 
 def configure(dsn):
-    """configure a connection from the passed in dsn"""
-    raise RuntimeError("this needs to be refactored")
+    """
+    configure an interface to be used to send messages to a backend
 
-    global connections
+    you use this function to configure an Interface using a dsn, then you can get
+    that interface using the get_interface() method
+
+    dsn -- string -- a properly formatted prom dsn, see DsnConnection for how to format the dsn
+    """
+    #global interfaces
+
     c = DsnConnection(dsn)
-    i_classname = interface.get_class(c.interface_name)
-    set_interface(c.name, i_classname(c))
+    if c.name in get_interfaces():
+        raise ValueError('a connection named "{}" has already been configured'.format(c.name))
 
-
-def get_interface(connection_name=""):
-    """get the configured interface that corresponds to connection_name"""
-    global interfaces
-    i = interfaces[connection_name]
+    interface_class = get_class(c.interface_name)
+    i = interface_class(c)
+    set_interface(i, c.name)
     return i
 
 
-def set_interface(connection_name, interface):
-    """bind an .interface.Interface() instance to connection_name"""
-    global interfaces
-    interfaces[connection_name] = interface
-
-
-def consume(message_names=None, connection_name=""):
-    """begin consume the messages with the given message_names, use connection_name to consume them"""
-    i = get_interface(connection_name)
-    i.consume(message_names)
+configure_environ()
 
 
 class Message(object):
@@ -44,53 +69,17 @@ class Message(object):
     this is the base class for sending and handling a message
 
     to add a new message to your application, just subclass this class
-
-        # in some script, create and send our new Foo message
-        class Foofields(Message):
-            def handle(self):
-                # all sent messages will end up in this method to be processed
-                print self.bar
-                pass
-
-        f = Foofields()
-        f.bar = "some value"
-        f.send()
-
-        # in some other script consume our Foo messages
-        morp.consume('Foo') # this will call Foofields.handle() for every FooMsg received
     """
 
     connection_name = ""
     """the name of the connection to use to retrieve the interface"""
 
-    name = ""
-    """the message name (this is usually the topic or whatnot where the message should be sent)"""
-
     fields = None
     """holds the actual message that will be sent"""
-
-    interface_fields = None
-    """this holds the raw message that is returned from a message handler, it is None on send, set on receive"""
-    # TODO -- a message lifetime will go through various states, when it is first
-    # created it will be UNSENT, after sending, then it will be SENT, that is the
-    # last state that message can be in, when a message is received, then it will be
-    # UNACKED, and once completed, it will be ACKED, which means it cannot be sent
-    # or received again
-    # I think ideal is:
-    #    with Foo.recv() as f:
-    #        # f.ack() will be called at the end
-    STATE_UNSENT = 1
-    STATE_SENT = 2
-    STATE_UNACKED = 3
-    STATE_ACKED = 4
 
     @decorators.classproperty
     def interface(cls):
         return get_interface(cls.connection_name)
-
-    @decorators.classproperty
-    def class_name(cls):
-        return ".".join([cls.__module__, cls.__name__])
 
     def __init__(self, fields=None, **fields_kwargs):
         self.fields = self._normalize_dict(fields, fields_kwargs)
@@ -116,16 +105,23 @@ class Message(object):
     def __contains__(self, key):
         return key in self.fields
 
-    def send(self):
+    def send(self, **kwargs):
         """send the message using the configured interface for this class"""
         i = self.interface
-        return i.send(self)
+        return i.send(self.get_name(), self.fields, **kwargs)
 
-    def get_name(self):
-        name = self.name
-        if not name:
-            name = self.__class__.__name__
-        return name
+    @classmethod
+    @contextmanager
+    def recv(cls, **kwargs):
+        i = cls.interface
+        name = cls.get_name()
+        interface_msg = i.recv(name, **kwargs)
+        yield cls.create(interface_msg.msg)
+        i.ack(name, interface_msg)
+
+    @classmethod
+    def get_name(cls):
+        return cls.__name__
 
     @classmethod
     def create(cls, fields=None, **fields_kwargs):
