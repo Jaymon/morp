@@ -63,6 +63,14 @@ class Message(object):
         i.ack(name, interface_msg)
 
     @classmethod
+    def recv_one(cls, **kwargs):
+        """this is just syntactic sugar around recv that receives, acknowledges, and
+        then returns the message"""
+        m = None
+        with cls.recv(**kwargs) as m:
+            return m
+
+    @classmethod
     def create(cls, fields=None, **fields_kwargs):
         """
         create an instance of cls with the passed in fields and send it off
