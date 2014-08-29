@@ -65,11 +65,13 @@ class Message(object):
     @classmethod
     def create(cls, fields=None, **fields_kwargs):
         """
-        create an instance of cls with the passed in fields and set it into the db
+        create an instance of cls with the passed in fields and send it off
+
         fields -- dict -- field_name keys, with their respective values
-        **fields_kwargs -- dict -- if you would rather pass in fields as name=val, that works also
+        **fields_kwargs -- dict -- if you would rather pass in fields as name=val
         """
         instance = cls(fields, **fields_kwargs)
+        instance.send()
         return instance
 
     @classmethod
