@@ -124,17 +124,25 @@ class Interface(object):
             return ret
 
     def _recv(self, name, connection, **kwargs): raise NotImplementedError()
-    def recv(self, name, **kwargs):
+    def recv(self, name, timeout=None, **kwargs):
         """receive a message from queue name
 
-        NOTE -- this should block until a message is received
-
+        timeout -- integer -- seconds to try and receive a message before returning None
         return -- InterfaceMessage() -- an instance containing fields and raw_msg
         """
         with self.connection(**kwargs) as connection:
-            fields, raw_msg = self._recv(name, connection=connection)
-            self.log("Message received from {} -- {}", name, fields)
-            return InterfaceMessage(fields, raw_msg)
+            ret = None
+            fields, raw_msg = self._recv(
+                name,
+                connection=connection,
+                timeout=timeout,
+                **kwargs
+            )
+            if fields:
+                ret = InterfaceMessage(fields, raw_msg)
+                self.log("Message received from {} -- {}", name, fields)
+
+            return ret
 
     def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
     def ack(self, name, interface_msg, **kwargs):

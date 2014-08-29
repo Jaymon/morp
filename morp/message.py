@@ -55,19 +55,18 @@ class Message(object):
 
     @classmethod
     @contextmanager
-    def recv(cls, **kwargs):
+    def recv(cls, timeout=None, **kwargs):
         i = cls.interface
         name = cls.get_name()
-        interface_msg = i.recv(name, **kwargs)
+        interface_msg = i.recv(name, timeout=timeout, **kwargs)
         yield cls.create(interface_msg.fields)
         i.ack(name, interface_msg)
 
     @classmethod
-    def recv_one(cls, **kwargs):
+    def recv_one(cls, timeout=None, **kwargs):
         """this is just syntactic sugar around recv that receives, acknowledges, and
         then returns the message"""
-        m = None
-        with cls.recv(**kwargs) as m:
+        with cls.recv(timeout=timeout, **kwargs) as m:
             return m
 
     @classmethod

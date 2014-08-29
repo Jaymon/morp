@@ -9,6 +9,6 @@ class Foo(morp.Message):
     pass
 
 while True:
-    with Foo.recv() as f:
+    with Foo.recv(60) as f:
         print "receiving: {}".format(f.fields)
 

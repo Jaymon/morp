@@ -62,6 +62,14 @@ class SQSInterfaceTest(BaseInterfaceTestCase):
         i2.ack(n, m2)
         self.assertEqual(0, i.count(n))
 
+    def test_recv_timeout(self):
+        i = self.get_interface()
+        n = self.get_name()
+        start = time.time()
+        m = i.recv(n, 1)
+        stop = time.time()
+        self.assertLessEqual(1.0, stop - start)
+
 
 class MessageTest(BaseInterfaceTestCase):
     interface_class = SQS

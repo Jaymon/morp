@@ -37,12 +37,14 @@ class SQS(Interface):
     @contextmanager
     def queue(self, name, connection, **kwargs):
         try:
-            q = connection.create_queue(
-                name,
-                self.connection_config.options.get('read_lock', 360)
-            )
-            q.set_message_class(JSONMessage)
+            q = connection.lookup(name)
+            if q is None:
+                q = connection.create_queue(
+                    name,
+                    self.connection_config.options.get('vtimeout', 360)
+                )
 
+            q.set_message_class(JSONMessage)
             yield q
 
         except Exception as e:
@@ -64,12 +66,21 @@ class SQS(Interface):
             q.clear()
 
     def _recv(self, name, connection, **kwargs):
+        timeout = kwargs.get('timeout', None)
+        vtimeout = kwargs.get('vtimeout', None)
         with self.queue(name, connection) as q:
-            raw_msg = None
-            while not raw_msg:
-                msgs = q.get_messages(1)
-                if msgs: raw_msg = msgs[0]
-            return raw_msg.get_body(), raw_msg
+            fields = {}
+            raw_msg = {}
+            msgs = q.get_messages(
+                1,
+                wait_time_seconds=timeout,
+                visibility_timeout=vtimeout
+            )
+            if msgs:
+                raw_msg = msgs[0]
+                fields = raw_msg.get_body()
+
+            return fields, raw_msg
 
     def _ack(self, name, interface_msg, connection, **kwargs):
         with self.queue(name, connection) as q:
