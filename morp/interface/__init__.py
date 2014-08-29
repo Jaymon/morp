@@ -1,4 +1,3 @@
-import importlib
 import logging
 import sys
 from contextlib import contextmanager
@@ -24,28 +23,10 @@ def get_interface(connection_name=""):
     return i
 
 
-def set_interface(connection_name, interface):
+def set_interface(interface, connection_name=""):
     """bind an .interface.Interface() instance to connection_name"""
     global interfaces
     interfaces[connection_name] = interface
-
-
-def get_class(full_python_class_path):
-    """
-    take something like some.full.module.Path and return the actual Path class object
-
-    Note -- this will fail when the object isn't accessible from the module, that means
-    you can't define your class object in a function and expect this function to work
-
-    example -- THIS IS BAD --
-        def foo():
-            class FooCannotBeFound(object): pass
-            # this will fail
-            get_class("path.to.module.FooCannotBeFound")
-    """
-    module_name, class_name = full_python_class_path.rsplit('.', 1)
-    m = importlib.import_module(module_name)
-    return getattr(m, class_name)
 
 
 class InterfaceMessage(object):
@@ -145,6 +126,8 @@ class Interface(object):
     def _recv(self, name, connection, **kwargs): raise NotImplementedError()
     def recv(self, name, **kwargs):
         """receive a message from queue name
+
+        NOTE -- this should block until a message is received
 
         return -- InterfaceMessage() -- an instance containing fields and raw_msg
         """

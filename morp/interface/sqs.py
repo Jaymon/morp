@@ -7,7 +7,13 @@ from boto.sqs.jsonmessage import JSONMessage
 from . import Interface
 
 class SQS(Interface):
+    """wraps amazon's SQS to make it work with our generic interface
 
+    https://boto.readthedocs.org/en/latest/ref/sqs.html
+    https://boto.readthedocs.org/en/latest/sqs_tut.html
+    http://michaelhallsmoore.com/blog/Python-Message-Queues-with-Amazon-Simple-Queue-Service
+    http://aws.amazon.com/sqs/
+    """
     _connection = None
 
     def _connect(self, connection_config):
@@ -59,7 +65,10 @@ class SQS(Interface):
 
     def _recv(self, name, connection, **kwargs):
         with self.queue(name, connection) as q:
-            raw_msg = q.get_messages(1)[0]
+            raw_msg = None
+            while not raw_msg:
+                msgs = q.get_messages(1)
+                if msgs: raw_msg = msgs[0]
             return raw_msg.get_body(), raw_msg
 
     def _ack(self, name, interface_msg, connection, **kwargs):

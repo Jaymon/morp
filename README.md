@@ -1,75 +1,60 @@
 # Morp
 
-Send messages without really thinking about it. Currently works with [NSQ](https://github.com/bitly/nsq).
+Send messages without really thinking about it. Currently works with Amazon's [SQS](http://aws.amazon.com/sqs/).
 
 ## DSN
 
 You configure your connection using a dsn in the form:
 
-    InterfaceName://lookupdhost1:port1+lookupdhost2:port2?opt1=val1&opt2=val2#connection_name
+    InterfaceName://username:password@?param1=value1&param2=value2
 
-So, to connect to nsq using one localhost lookupd instance:
+So, to connect to SQS, you would do:
 
-    morp.interface.nsq.Nsq://127.0.0.1:4161
+    morp.interface.sqs.SQS://AWS_ID:AWS_KEY@
 
-## Example
+You can also override some default values like `region` and `read_lock`:
 
-Send and consume `Foo` messages.
+    morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?region=us-west-1&read_lock=120
 
-We are going to create a series of files to run this example:
-
-    rootdir/
-      setup.py
-      send.py
-      consume.py
-
-### setup.py
-
-    # connect to our nsq backend
-    import morp
-    morp.configure("morp.interface.nsq.Nsq://127.0.0.1:4161")
-
-### send.py
-
-Let's create a `Foo` class to send our `Foo` messages:
-
-    import time
-    import morp
-    import setup.py # configure nsq
-
-    class Foo(morp.Message):
-
-        def handle(self):
-            """this method gets called each time a Foo message is received"""
-            print self.bar
-            return True
+If you set the environment variable `MORP_DSN` with your connection dsn then morp will automatically configure itself on first import.
 
 
-    # start sendind some messages:
-    for x in xrange(100):
-        f = Foo()
-        f.bar = x
-        f.send()
-        time.sleep(1)
+## 1 Minute Getting Started
 
-In one terminal, we can start `send.py` to begin sending messages:
+Send and receive a `Foo` message.
 
-    $ python send.py
+First, let's set our environment variable:
 
-### consume.py
+    export MORP_DSN=morp.interface.sqs.SQS://AWS_ID:AWS_KEY@
 
-Now, let's consume our `Foo` messages that `send.py` is sending
+Second, let's create a `Foo` class:
 
-    import morp
-    import setup.py # configure nsq
+```python
+import morp
 
-    morp.consume("Foo")
+class Foo(morp.Message):
+    pass
+```
 
-In another terminal, we can start consuming our sent `Foo` messages:
+Third, let's get `Foo` ready to receive messages:
 
-    $ python consume.py
+```python
+while True:
+    with Foo.recv() as foo_msg:
+        print foo_msg.fields
+```
 
-That's it, we our now sending and receiving messages.
+Fourth, let's send a message:
+
+```python
+f = Foo()
+f.some_field = 1
+f.some_other_field = 2
+f.send()
+```
+
+And we're done, you can check out the actual example in the `/example` folder on Github to see similar code to the above in action.
+
 
 ## Installation
 
@@ -80,5 +65,4 @@ Use pip:
 ## License
 
 MIT
-
 
