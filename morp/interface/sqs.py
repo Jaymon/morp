@@ -67,6 +67,10 @@ class SQS(Interface):
 
     def _recv(self, name, connection, **kwargs):
         timeout = kwargs.get('timeout', None)
+        if timeout is not None:
+            if timeout < 0 or timeout > 20:
+                raise ValueError('timeout must be between 1 and 20')
+
         vtimeout = kwargs.get('vtimeout', None)
         with self.queue(name, connection) as q:
             fields = {}
