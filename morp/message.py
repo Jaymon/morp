@@ -59,7 +59,7 @@ class Message(object):
         i = cls.interface
         name = cls.get_name()
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
-        yield cls.create(interface_msg.fields)
+        yield cls(interface_msg.fields)
         i.ack(name, interface_msg)
 
     @classmethod
@@ -80,6 +80,16 @@ class Message(object):
         instance = cls(fields, **fields_kwargs)
         instance.send()
         return instance
+
+    @classmethod
+    def clear(cls):
+        n = cls.get_name()
+        return cls.interface.clear(n)
+
+    @classmethod
+    def count(cls):
+        n = cls.get_name()
+        return cls.interface.count(n)
 
     @classmethod
     def _normalize_dict(cls, fields, fields_kwargs):
