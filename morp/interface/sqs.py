@@ -52,8 +52,9 @@ class SQS(Interface):
 
     def _send(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
+            delay_seconds = kwargs.get('delay_seconds', None)
             m = q.new_message(body=fields)
-            q.write(m)
+            q.write(m, delay_seconds)
 
     def _count(self, name, connection, **kwargs):
         ret = 0
