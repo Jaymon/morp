@@ -56,11 +56,17 @@ class Message(object):
     @classmethod
     @contextmanager
     def recv(cls, timeout=None, **kwargs):
+        """try and receive a message, return None if a message is not received
+        withing timeout"""
         i = cls.interface
         name = cls.get_name()
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
-        yield cls(interface_msg.fields)
-        i.ack(name, interface_msg)
+        if interface_msg:
+            yield cls(interface_msg.fields)
+            i.ack(name, interface_msg)
+
+        else:
+            yield None
 
     @classmethod
     def recv_one(cls, timeout=None, **kwargs):
