@@ -1,3 +1,5 @@
+import hashlib
+
 import dsnparse
 
 
@@ -20,6 +22,19 @@ class Connection(object):
 
     options = None
     """dict -- any other interface specific options you need"""
+
+    @property
+    def key(self):
+        """string -- an encryption key loaded from options['keyfile'], it must be 32 bytes long"""
+        if not hasattr(self, '_key'):
+            self._key = ''
+            keyfile = self.options.get('keyfile')
+            if keyfile:
+                with open(keyfile, 'r') as f:
+                    # key must be 32 characters long
+                    self._key = hashlib.sha256(f.read().strip()).digest()
+
+        return self._key
 
     def __init__(self, **kwargs):
         """
@@ -73,7 +88,6 @@ class DsnConnection(Connection):
         if p.hostname:
             d['hosts'].append((p.hostname, getattr(p, 'port', None)))
 
-        # parse the query into options, multiple dsns
         if p.query:
             d['options'] = p.query
 

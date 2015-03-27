@@ -44,16 +44,16 @@ class SQS(Interface):
                     self.connection_config.options.get('vtimeout', 360)
                 )
 
-            q.set_message_class(JSONMessage)
+            #q.set_message_class(JSONMessage)
             yield q
 
         except Exception as e:
             self.raise_error(e)
 
-    def _send(self, name, fields, connection, **kwargs):
+    def _send(self, name, body, connection, **kwargs):
         with self.queue(name, connection) as q:
             delay_seconds = kwargs.get('delay_seconds', None)
-            m = q.new_message(body=fields)
+            m = q.new_message(body=body)
             q.write(m, delay_seconds)
 
     def _count(self, name, connection, **kwargs):
@@ -74,7 +74,7 @@ class SQS(Interface):
 
         vtimeout = kwargs.get('vtimeout', None)
         with self.queue(name, connection) as q:
-            fields = {}
+            body = ''
             raw_msg = {}
             msgs = q.get_messages(
                 1,
@@ -83,9 +83,9 @@ class SQS(Interface):
             )
             if msgs:
                 raw_msg = msgs[0]
-                fields = raw_msg.get_body()
+                body = raw_msg.get_body()
 
-            return fields, raw_msg
+            return body, raw_msg
 
     def _ack(self, name, interface_msg, connection, **kwargs):
         with self.queue(name, connection) as q:

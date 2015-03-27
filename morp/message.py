@@ -47,7 +47,8 @@ class Message(object):
     def send(self, **kwargs):
         """send the message using the configured interface for this class"""
         i = self.interface
-        return i.send(self.get_name(), self.fields, **kwargs)
+        msg = self.interface.create_msg(fields=self.fields)
+        return i.send(self.get_name(), msg, **kwargs)
 
     @classmethod
     def get_name(cls):

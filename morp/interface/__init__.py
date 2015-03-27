@@ -1,6 +1,15 @@
 import logging
 import sys
 from contextlib import contextmanager
+import base64
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
+from Crypto import Random
+from Crypto.Cipher import AES
 
 from ..exception import InterfaceError
 
@@ -31,7 +40,7 @@ def set_interface(interface, connection_name=""):
 
 class InterfaceMessage(object):
     """this is a thin wrapper around all received interface messages"""
-    def __init__(self, fields, raw_msg):
+    def __init__(self, fields, raw_msg=None):
         """
         fields -- dict -- the original fields you passed to the Interface send method
         raw_msg -- mixed -- this is the raw message the interface returned
@@ -51,6 +60,12 @@ class Interface(object):
 
     def __init__(self, connection_config=None):
         self.connection_config = connection_config
+
+    def create_msg(self, **kwargs):
+        """create an interface message that is used to send/receive to the backend
+        interface, this message is used to keep the api similar across the different
+        methods and backends"""
+        return InterfaceMessage(**kwargs)
 
     def _connect(self, connection_config): raise NotImplementedError()
     def connect(self, connection_config=None):
@@ -72,8 +87,6 @@ class Interface(object):
             raise self.raise_error(e)
 
         return self.connected
-
-    def free_connection(self, connection): pass
 
     def get_connection(self): raise NotImplementedError()
 
@@ -103,27 +116,78 @@ class Interface(object):
                 except:
                     raise
 
-                finally:
-                    self.free_connection(connection)
-
         except Exception as e:
             self.raise_error(e)
 
-    def _send(self, name, fields, connection, **kwargs): raise NotImplementedError()
-    def send(self, name, fields, **kwargs):
-        """send a message to message queue name"""
-        with self.connection(**kwargs) as connection:
-            self._send(name, fields, connection=connection)
-            self.log("Message sent to {} -- {}", name, fields)
+    def _encode(self, fields):
+        """prepare a message to be sent over the backend
 
-    def _count(self, names, connection, **kwargs): raise NotImplementedError()
+        fields -- dict -- the fields to be converted to a string
+        return -- string -- the message all ready to be sent
+        """
+        ret = pickle.dumps(fields, pickle.HIGHEST_PROTOCOL)
+        key = self.connection_config.key
+        if key:
+            self.log("Message will be sent encrypted")
+            # http://stackoverflow.com/questions/1220751/
+            iv = Random.new().read(AES.block_size)
+            aes = AES.new(key, AES.MODE_CFB, iv)
+            ret = iv + aes.encrypt(ret)
+
+        ret = base64.b64encode(ret)
+        return ret
+
+    def _decode(self, body):
+        """this turns a message body back to the original fields
+
+        body -- string -- the body to be converted to a dict
+        return -- dict -- the fields of the original message
+        """
+        ret = base64.b64decode(body)
+        key = self.connection_config.key
+        if key:
+            self.log("Message was sent encrypted")
+            iv = ret[:AES.block_size]
+            aes = AES.new(key, AES.MODE_CFB, iv)
+            ret = aes.decrypt(ret[AES.block_size:])
+
+        ret = pickle.loads(ret)
+        return ret
+
+    def _send(self, name, body, connection, **kwargs):
+        """similar to self.send() but this takes a body, which is the message
+        completely encoded and ready to be sent by the backend, instead of an
+        interface_msg() instance"""
+        raise NotImplementedError()
+
+    def send(self, name, interface_msg, **kwargs):
+        """send a message to message queue name
+
+        name -- string -- the queue name
+        interface_msg -- InterfaceMessage() -- an instance of InterfaceMessage, see self.create_msg()
+        **kwargs -- dict -- anything else, this gets passed to self.connection()
+        """
+        if not interface_msg.fields:
+            raise ValueError("the interface_msg has no fields to send")
+
+        with self.connection(**kwargs) as connection:
+            self._send(name, self._encode(interface_msg.fields), connection=connection)
+            self.log("Message sent to {} -- {}", name, interface_msg.fields)
+
+    def _count(self, name, connection, **kwargs): raise NotImplementedError()
     def count(self, name, **kwargs):
         """count how many messages are in queue name"""
         with self.connection(**kwargs) as connection:
             ret = int(self._count(name, connection=connection))
             return ret
 
-    def _recv(self, name, connection, **kwargs): raise NotImplementedError()
+    def _recv(self, name, connection, **kwargs):
+        """return -- tuple -- (body, raw_msg) where body is the string of the
+            message that needs to be decrypted, and raw_msg is the backend message
+            object instance, this is returned because things like .ack() might need
+            it to get an id or something"""
+        raise NotImplementedError()
+
     def recv(self, name, timeout=None, **kwargs):
         """receive a message from queue name
 
@@ -131,26 +195,22 @@ class Interface(object):
         return -- InterfaceMessage() -- an instance containing fields and raw_msg
         """
         with self.connection(**kwargs) as connection:
-            ret = None
-            fields, raw_msg = self._recv(
+            interface_msg = None
+            body, raw_msg = self._recv(
                 name,
                 connection=connection,
                 timeout=timeout,
                 **kwargs
             )
-            if fields:
-                ret = InterfaceMessage(fields, raw_msg)
-                self.log("Message received from {} -- {}", name, fields)
+            if body:
+                interface_msg = self.create_msg(fields=self._decode(body), raw_msg=raw_msg)
+                self.log("Message received from {} -- {}", name, interface_msg.fields)
 
-            return ret
+            return interface_msg
 
     def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
     def ack(self, name, interface_msg, **kwargs):
-        """this will acknowledge that the interface message was received successfully
-
-        an interface_msg is different from a message passed to self.send(), it is
-        the InterfaceMessage() instance that self.recv() returns
-        """
+        """this will acknowledge that the interface message was received successfully"""
         with self.connection(**kwargs) as connection:
             self._ack(name, interface_msg, connection=connection)
             self.log("Message acked from {} -- {}", name, interface_msg.fields)

@@ -16,6 +16,10 @@ You can also override some default values like `region` and `read_lock`:
 
     morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?region=us-west-1&read_lock=120
 
+Finally, if you would like to encrypt all your messages, you can pass in `keyfile` with a path to a key file and Morp will take care of encrypting and decrypting the messages for you transparently to you:
+
+    morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?keyfile=/some/path/keyfile.key
+
 If you set the environment variable `MORP_DSN` with your connection dsn then morp will automatically configure itself on first import.
 
 

@@ -7,7 +7,7 @@ from . import reflection
 from .message import Message
 
 
-__version__ = '0.2.8'
+__version__ = '0.2.9'
 
 
 def configure_environ(dsn_env_name='MORP_DSN'):
@@ -32,15 +32,10 @@ def configure_environ(dsn_env_name='MORP_DSN'):
     increment_name = lambda name, num: '{}_{}'.format(name, num)
     dsn_num = 1
     dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
-    if dsn_env_num_name in os.environ:
-        try:
-            while True:
-                configure(os.environ[dsn_env_num_name])
-                dsn_num += 1
-                dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
-
-        except KeyError:
-            pass
+    while dsn_env_num_name in os.environ:
+        configure(os.environ[dsn_env_num_name])
+        dsn_num += 1
+        dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
 
 
 def configure(dsn):
@@ -65,5 +60,4 @@ def configure(dsn):
 
 
 configure_environ()
-
 

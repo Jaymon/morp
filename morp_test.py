@@ -39,6 +39,16 @@ class BaseInterfaceTestCase(TestCase):
         self.assertTrue(i.connected)
         return i
 
+    def get_encrypted_interface(self, connection_name=""):
+        """get a connected interface"""
+        key_path = testdata.create_file("/morp.key", testdata.get_ascii(100))
+        config = DsnConnection(os.environ['MORP_DSN_1'])
+        config.options['keyfile'] = key_path
+        i = self.interface_class(config)
+        i.connect()
+        self.assertTrue(i.connected)
+        return i
+
     def get_name(self):
         #return 'morp-test-' + testdata.get_ascii(12)
         return 'morp-test-sqs'
@@ -51,24 +61,35 @@ class SQSInterfaceTest(BaseInterfaceTestCase):
         n = self.get_name()
 
         d = {'foo': 1, 'bar': 2}
-        i.send(n, d)
+        interface_msg = i.create_msg(fields={'foo': 10, 'bar': 20})
+        i.send(n, interface_msg)
         self.assertEqual(1, i.count(n))
 
         # re-connect to receive the message
         i2 = self.get_interface()
-        m2 = i2.recv(n)
-        self.assertEqual(d, m2.fields)
+        interface_msg2 = i2.recv(n)
+        self.assertEqual(interface_msg.fields, interface_msg2.fields)
 
-        i2.ack(n, m2)
+        i2.ack(n, interface_msg2)
         self.assertEqual(0, i.count(n))
 
     def test_recv_timeout(self):
         i = self.get_interface()
         n = self.get_name()
         start = time.time()
-        m = i.recv(n, 1)
+        i.recv(n, 1)
         stop = time.time()
         self.assertLessEqual(1.0, stop - start)
+
+    def test_send_recv_encrypted(self):
+        i = self.get_encrypted_interface()
+        n = self.get_name()
+        interface_msg = i.create_msg(fields={'foo': 10, 'bar': 20})
+        i.send(n, interface_msg)
+
+        interface_msg2 = i.recv(n)
+        self.assertEqual(interface_msg.fields, interface_msg2.fields)
+        i.ack(n, interface_msg2)
 
 
 class MessageTest(BaseInterfaceTestCase):
