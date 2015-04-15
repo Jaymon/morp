@@ -1,7 +1,13 @@
+import os
 from contextlib import contextmanager
+import logging
 
 from . import decorators
 from .interface import get_interface
+
+
+logger = logging.getLogger(__name__)
+
 
 class Message(object):
     """
@@ -46,13 +52,26 @@ class Message(object):
 
     def send(self, **kwargs):
         """send the message using the configured interface for this class"""
-        i = self.interface
-        msg = self.interface.create_msg(fields=self.fields)
-        return i.send(self.get_name(), msg, **kwargs)
+        queue_off = os.environ.get('MORP_QUEUE_OFF', False)
+        if queue_off:
+            logger.warn("QUEUE OFF - Would have sent {} to {}".format(
+                self.fields,
+                self.get_name()
+            ))
+
+        else:
+            i = self.interface
+            msg = self.interface.create_msg(fields=self.fields)
+            i.send(self.get_name(), msg, **kwargs)
 
     @classmethod
     def get_name(cls):
-        return cls.__name__
+        name = cls.__name__
+        env_name = os.environ.get('MORP_QUEUE_PREFIX', '')
+        if env_name:
+            name = "{}-{}".format(env_name, name)
+
+        return name
 
     @classmethod
     @contextmanager
@@ -68,6 +87,17 @@ class Message(object):
 
         else:
             yield None
+
+    @classmethod
+    @contextmanager
+    def recv_block(cls, **kwargs):
+        """similar to recv() but will block until a message is received"""
+        m = None
+        kwargs.setdefault('timeout', 20)
+        while not m:
+            with cls.recv(**kwargs) as m:
+                if m:
+                    yield m
 
     @classmethod
     def recv_one(cls, timeout=None, **kwargs):

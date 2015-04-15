@@ -115,6 +115,15 @@ class MessageTest(BaseInterfaceTestCase):
         with m.__class__.recv() as m2:
             self.assertEqual(m.fields, m2.fields)
 
+    def test_recv_block(self):
+        m = self.get_msg()
+        m.foo = 10
+        m.bar = 20
+        m.send()
+
+        with m.__class__.recv_block() as m2:
+            self.assertEqual(m.fields, m2.fields)
+
 
 class ConnectionTest(TestCase):
 

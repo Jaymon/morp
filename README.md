@@ -56,8 +56,6 @@ You can also override some default values like `region` and `read_lock`:
 
     morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?region=us-west-1&read_lock=120
 
-If you set the environment variable `MORP_DSN` with your connection dsn, morp will automatically configure itself on first import.
-
 
 ## Encryption
 
@@ -72,6 +70,21 @@ And modify our dsn:
     morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?keyfile=/tmp/keyfile.key
 
 That's it, every message will now be encrypted on send and decrypted on receive.
+
+
+## Environment configuration
+
+### MORP_QUEUE_OFF
+
+By default every message will be sent, if you just want to test functionality without actually sending the message you can set this environment variable to turn off all the queues.
+
+### MORP_QUEUE_PREFIX
+
+By default, the queue name is just the class name, but if you would like to have that prefixed with something (eg, `prod` or `dev`) then you can set this environment variable and it will be prefixed to the queue name.
+
+### MORP_DSN
+
+If you set the environment variable `MORP_DSN` with your connection dsn, morp will automatically configure itself on first import.
 
 
 ## Installation
