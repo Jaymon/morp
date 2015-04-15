@@ -52,7 +52,7 @@ class Message(object):
 
     def send(self, **kwargs):
         """send the message using the configured interface for this class"""
-        queue_off = os.environ.get('MORP_QUEUE_OFF', False)
+        queue_off = bool(int(os.environ.get('MORP_QUEUE_OFF', False)))
         if queue_off:
             logger.warn("QUEUE OFF - Would have sent {} to {}".format(
                 self.fields,
