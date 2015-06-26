@@ -77,13 +77,23 @@ class Message(object):
     @contextmanager
     def recv(cls, timeout=None, **kwargs):
         """try and receive a message, return None if a message is not received
-        withing timeout"""
+        within timeout"""
         i = cls.interface
         name = cls.get_name()
+        ack_on_recv = kwargs.pop('ack_on_recv', False)
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
         if interface_msg:
-            yield cls(interface_msg.fields)
-            i.ack(name, interface_msg)
+            try:
+                yield cls(interface_msg.fields)
+
+            except Exception as e:
+                if ack_on_recv:
+                    i.ack(name, interface_msg)
+
+                raise
+
+            else:
+                i.ack(name, interface_msg)
 
         else:
             yield None
@@ -93,7 +103,7 @@ class Message(object):
     def recv_block(cls, **kwargs):
         """similar to recv() but will block until a message is received"""
         m = None
-        kwargs.setdefault('timeout', 20)
+        kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
         while not m:
             with cls.recv(**kwargs) as m:
                 if m:

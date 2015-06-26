@@ -124,6 +124,32 @@ class MessageTest(BaseInterfaceTestCase):
         with m.__class__.recv_block() as m2:
             self.assertEqual(m.fields, m2.fields)
 
+    def test_recv_block_error(self):
+        m = self.get_msg()
+        mcls = m.__class__
+        m.foo = 10
+        m.send()
+
+        kwargs = {
+            "vtimeout": 1,
+            "timeout": 2
+        }
+
+        with self.assertRaises(RuntimeError):
+            with mcls.recv_block(**kwargs) as m2:
+                raise RuntimeError()
+
+        time.sleep(1.2)
+
+        kwargs["ack_on_recv"] = True
+        with self.assertRaises(RuntimeError):
+            with mcls.recv_block(**kwargs) as m2:
+                raise RuntimeError()
+
+        time.sleep(1.2)
+        with mcls.recv(timeout=1) as m2:
+            self.assertEqual(None, m2)
+
 
 class ConnectionTest(TestCase):
 
