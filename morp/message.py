@@ -83,6 +83,7 @@ class Message(object):
         i = cls.interface
         name = cls.get_name()
         ack_on_recv = kwargs.pop('ack_on_recv', False)
+        logger.debug("Waiting to receive on {} for {} seconds".format(name, timeout))
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
         if interface_msg:
             try:

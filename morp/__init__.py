@@ -7,7 +7,7 @@ from . import reflection
 from .message import Message
 
 
-__version__ = '0.3.2'
+__version__ = '0.3.3'
 
 
 def configure_environ(dsn_env_name='MORP_DSN'):

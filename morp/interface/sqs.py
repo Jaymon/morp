@@ -18,6 +18,7 @@ class SQS(Interface):
 
     def _connect(self, connection_config):
         region = connection_config.options.get('region', 'us-west-1')
+        self.log("SQS connected to region {}", region)
         self._connection = boto.sqs.connect_to_region(
             region,
             aws_access_key_id=connection_config.username,
