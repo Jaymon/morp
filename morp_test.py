@@ -41,9 +41,14 @@ class BaseInterfaceTestCase(TestCase):
 
     def get_encrypted_interface(self, connection_name=""):
         """get a connected interface"""
-        key_path = testdata.create_file("/morp.key", testdata.get_ascii(100))
         config = DsnConnection(os.environ['MORP_DSN_1'])
-        config.options['keyfile'] = key_path
+
+        if testdata.random.randint(0, 1):
+            key_path = testdata.create_file("/morp.key", testdata.get_ascii(100))
+            config.options['keyfile'] = key_path
+        else:
+            config.options['key'] = testdata.get_ascii(32)
+
         i = self.interface_class(config)
         i.connect()
         self.assertTrue(i.connected)
@@ -71,6 +76,7 @@ class SQSInterfaceTest(BaseInterfaceTestCase):
         self.assertEqual(interface_msg.fields, interface_msg2.fields)
 
         i2.ack(n, interface_msg2)
+        time.sleep(2) # 2 seconds made it work consistently
         self.assertEqual(0, i.count(n))
 
     def test_recv_timeout(self):
@@ -105,6 +111,19 @@ class MessageTest(BaseInterfaceTestCase):
 
         m = TMsg()
         return m
+
+    def test_release(self):
+        m = self.get_msg()
+        mcls = m.__class__
+        m.foo = testdata.get_int()
+        m.send()
+
+        with self.assertRaises(RuntimeError):
+            with mcls.recv_block() as m2:
+                raise RuntimeError()
+
+        with mcls.recv_block() as m2:
+            self.assertEqual(m2.foo, m.foo)
 
     def test_send_recv(self):
         m = self.get_msg()
@@ -152,9 +171,27 @@ class MessageTest(BaseInterfaceTestCase):
 
 
 class ConnectionTest(TestCase):
+    def test_key(self):
+        c = Connection()
+        self.assertEqual("", c.key)
+        self.assertEqual(c.key, c.key)
+
+        key = testdata.get_ascii(100)
+        c = Connection(options=dict(key=key))
+        self.assertNotEqual("", c.key)
+        self.assertEqual(c.key, c.key)
+
+        key_path = testdata.create_file("morp.key", testdata.get_ascii(100))
+        c = Connection(options=dict(keyfile=key_path))
+        self.assertNotEqual("", c.key)
+        self.assertEqual(c.key, c.key)
+
+        c = Connection(options=dict(key=key, keyfile=key_path))
+        self.assertNotEqual("", c.key)
+        c2 = Connection(options=dict(key=key, keyfile=key_path))
+        self.assertEqual(c.key, c2.key)
 
     def test_dsn_connection(self):
-
         tests = [
             (
                 'path.to.Interface://127.0.0.1:4151',

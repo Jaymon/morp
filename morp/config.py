@@ -25,14 +25,20 @@ class Connection(object):
 
     @property
     def key(self):
-        """string -- an encryption key loaded from options['keyfile'], it must be 32 bytes long"""
+        """string -- an encryption key loaded from options['keyfile'], or options['key'],
+        it must be 32 bytes long so this makes sure it is"""
         if not hasattr(self, '_key'):
-            self._key = ''
+            key = ""
             keyfile = self.options.get('keyfile')
             if keyfile:
                 with open(keyfile, 'r') as f:
-                    # key must be 32 characters long
-                    self._key = hashlib.sha256(f.read().strip()).digest()
+                    key = f.read().strip()
+
+            else:
+                key = self.options.get('key', "")
+
+            # key must be 32 characters long
+            self._key = hashlib.sha256(key).digest() if key else ""
 
         return self._key
 

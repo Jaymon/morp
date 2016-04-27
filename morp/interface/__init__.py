@@ -208,6 +208,14 @@ class Interface(object):
 
             return interface_msg
 
+    def _release(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
+    def release(self, name, interface_msg, **kwargs):
+        """release the message back into the queue, this is usually for when processing
+        the message has failed and so a new attempt to process the message should be made"""
+        with self.connection(**kwargs) as connection:
+            self._release(name, interface_msg, connection=connection)
+            self.log("Message released back to {}", name)
+
     def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
     def ack(self, name, interface_msg, **kwargs):
         """this will acknowledge that the interface message was received successfully"""

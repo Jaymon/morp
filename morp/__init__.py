@@ -5,9 +5,10 @@ from . import decorators
 from .interface import get_interface, set_interface, get_interfaces
 from . import reflection
 from .message import Message
+from .exception import InterfaceError
 
 
-__version__ = '0.3.3'
+__version__ = '0.3.4'
 
 
 def configure_environ(dsn_env_name='MORP_DSN'):

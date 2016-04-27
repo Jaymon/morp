@@ -26,7 +26,7 @@ Third, let's get `Foo` ready to receive messages:
 
 ```python
 while True:
-    with Foo.recv() as foo_msg:
+    with Foo.recv_block() as foo_msg:
         print foo_msg.fields
 ```
 
@@ -95,9 +95,4 @@ If you set the environment variable `MORP_DSN` with your connection dsn, morp wi
 Use pip:
 
     pip install morp
-
-
-## License
-
-MIT
 

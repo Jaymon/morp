@@ -92,6 +92,8 @@ class Message(object):
             except Exception as e:
                 if ack_on_recv:
                     i.ack(name, interface_msg)
+                else:
+                    i.release(name, interface_msg)
 
                 raise
 
