@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from contextlib import contextmanager
 
 import boto3
+from botocore.exceptions import ClientError
 
 from . import Interface
 
@@ -18,12 +19,17 @@ class SQS(Interface):
     def _connect(self, connection_config):
         region = connection_config.options.get('region', 'us-west-1')
         self.log("SQS connected to region {}", region)
-        sqs = boto3.resource('sqs')
-        self._connection = sqs.connect_to_region(
-            region,
+        self._connection = boto3.resource(
+            'sqs',
+            region_name=region,
             aws_access_key_id=connection_config.username,
             aws_secret_access_key=connection_config.password
         )
+#         self._connection = sqs.connect_to_region(
+#             region,
+#             aws_access_key_id=connection_config.username,
+#             aws_secret_access_key=connection_config.password
+#         )
 
     def get_connection(self):
         return self._connection
@@ -37,15 +43,28 @@ class SQS(Interface):
 
     @contextmanager
     def queue(self, name, connection, **kwargs):
+        # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue
         try:
-            q = connection.lookup(name)
-            if q is None:
-                q = connection.create_queue(
-                    name,
-                    self.connection_config.options.get('max_timeout')
-                )
+            try:
+                q = connection.get_queue_by_name(QueueName=name)
 
-            #q.set_message_class(JSONMessage)
+            except Exception as e:
+                # TODO -- this needs to be tightened to the correct error
+                pout.v(e)
+                q = None
+
+            finally:
+                if q is None:
+                    attrs = {}
+                    vtimeout = self.connection_config.options.get('max_timeout')
+                    if vtimeout:
+                        attrs["VisibilityTimeout"] = str(vtimeout)
+
+                    q = connection.create_queue(
+                        QueueName=name,
+                        Attributes=attrs 
+                    )
+
             yield q
 
         except Exception as e:
@@ -53,19 +72,26 @@ class SQS(Interface):
 
     def _send(self, name, body, connection, **kwargs):
         with self.queue(name, connection) as q:
-            delay_seconds = kwargs.get('delay_seconds', None)
-            m = q.new_message(body=body)
-            q.write(m, delay_seconds)
+            delay_seconds = kwargs.get('delay_seconds', 0)
+            # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.send_message
+            q.send_message(MessageBody=body, DelaySeconds=delay_seconds)
+            #m = q.new_message(body=body)
+            #q.write(m, delay_seconds)
 
     def _count(self, name, connection, **kwargs):
         ret = 0
         with self.queue(name, connection) as q:
-            ret = q.count()
+            ret = int(q.attributes.get('ApproximateNumberOfMessages', 0))
         return ret
 
     def _clear(self, name, connection, **kwargs):
         with self.queue(name, connection) as q:
-            q.clear()
+            try:
+                q.purge()
+
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "AWS.SimpleQueueService.PurgeQueueInProgress":
+                    raise
 
     def _recv(self, name, connection, **kwargs):
         # if timeout isn't set then this will return immediately with no values
@@ -79,14 +105,17 @@ class SQS(Interface):
         with self.queue(name, connection) as q:
             body = ''
             raw = None
-            msgs = q.get_messages(
-                1,
-                wait_time_seconds=timeout,
-                visibility_timeout=vtimeout
-            )
+
+            kwargs = {"MaxNumberOfMessages": 1}
+            if timeout:
+                kwargs["WaitTimeSeconds"] = timeout
+            if vtimeout:
+                kwargs["VisibilityTimeout"] = timeout
+
+            msgs = q.receive_messages(**kwargs)
             if msgs:
                 raw = msgs[0]
-                body = raw.get_body()
+                body = raw.body
 
             return body, raw
 
@@ -100,9 +129,20 @@ class SQS(Interface):
             # If for some reason you don't delete the message and receive it again,
             # its visibility timeout is the original value set for the queue.
             delay_seconds = kwargs.get('delay_seconds', 0)
-            q.change_message_visibility_batch([(interface_msg.raw, delay_seconds)])
+            q.change_message_visibility_batch(Entries=[{
+                "Id": interface_msg.raw.message_id,
+                "ReceiptHandle": interface_msg.raw.receipt_handle,
+                "VisibilityTimeout": delay_seconds
+            }])
 
     def _ack(self, name, interface_msg, connection, **kwargs):
         with self.queue(name, connection) as q:
-            q.delete_message(interface_msg.raw)
+            q.delete_messages(Entries=[
+                {
+                    'Id': interface_msg.raw.message_id,
+                    'ReceiptHandle': interface_msg.raw.receipt_handle,
+                }
+            ])
+            # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Message.delete
+            #interface_msg.raw.delete()
 
