@@ -20,7 +20,7 @@ log_formatter = logging.Formatter('[%(levelname)s] %(message)s')
 log_handler.setFormatter(log_formatter)
 logger.addHandler(log_handler)
 
-logger = logging.getLogger('boto')
+logger = logging.getLogger('boto3')
 logger.setLevel(logging.WARNING)
 
 
@@ -31,7 +31,7 @@ class BaseInterfaceTestCase(TestCase):
         n = self.get_name()
         i.clear(n)
 
-    def get_interface(self, connection_name=""):
+    def get_interface(self):
         """get a connected interface"""
         config = DsnConnection(os.environ['MORP_DSN_1'])
         i = self.interface_class(config)
@@ -39,7 +39,7 @@ class BaseInterfaceTestCase(TestCase):
         self.assertTrue(i.connected)
         return i
 
-    def get_encrypted_interface(self, connection_name=""):
+    def get_encrypted_interface(self):
         """get a connected interface"""
         config = DsnConnection(os.environ['MORP_DSN_1'])
 
@@ -57,6 +57,19 @@ class BaseInterfaceTestCase(TestCase):
     def get_name(self):
         #return 'morp-test-' + testdata.get_ascii(12)
         return 'morp-test-sqs'
+
+    def test_msg_lifecycle(self):
+        i = self.get_encrypted_interface()
+        im = i.create_msg()
+
+        fields = {"foo": 1, "bar": 2}
+        im.fields = fields
+        body = im.body
+
+        im2 = i.create_msg()
+        im2.body = body
+        self.assertEqual(im.fields, im2.fields)
+        self.assertEqual(im.fields, fields)
 
 
 class SQSInterfaceTest(BaseInterfaceTestCase):
@@ -111,6 +124,25 @@ class MessageTest(BaseInterfaceTestCase):
 
         m = TMsg()
         return m
+
+    def test_backoff(self):
+        # TODO make this work
+        m = self.get_msg()
+        mcls = m.__class__
+        foo = testdata.get_int()
+        m.foo = foo
+
+        m.send()
+
+        for x in range(3):
+            with self.assertRaises(RuntimeError):
+                with mcls.recv_block() as m2:
+                    raise RuntimeError()
+
+        with mcls.recv_block() as m2:
+            pout.v(m2)
+            self.assertEqual(m2.foo, m.foo)
+
 
     def test_release(self):
         m = self.get_msg()

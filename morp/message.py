@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 import logging
+import datetime
 
 from . import decorators
 from .interface import get_interface
@@ -20,14 +21,23 @@ class Message(object):
     """the name of the connection to use to retrieve the interface"""
 
     fields = None
-    """holds the actual message that will be sent"""
+    """holds the actual message that will be sent, this is a dict of key/values
+    that will be sent. The fields can be set using properties of this class
+
+    example --
+        m = Message
+        m.foo = 1
+        m.bar = 2
+        print(m.fields) # {"foo": 1, "bar": 2}
+    """
 
     @decorators.classproperty
     def interface(cls):
         return get_interface(cls.connection_name)
 
     def __init__(self, fields=None, **fields_kwargs):
-        self.fields = self._normalize_dict(fields, fields_kwargs)
+        fields = self._normalize_dict(fields, fields_kwargs)
+        self.fields = fields
 
     def __getattr__(self, key):
         if hasattr(self.__class__, key):
@@ -61,10 +71,11 @@ class Message(object):
 
         else:
             name = self.get_name()
+            fields = self.fields
             i = self.interface
-            msg = self.interface.create_msg(fields=self.fields)
-            logger.info("Sending message with {} keys to {}".format(len(self.fields), name))
-            i.send(name, msg, **kwargs)
+            interface_msg = self.interface.create_msg(fields=fields)
+            logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
+            i.send(name, interface_msg, **kwargs)
 
     @classmethod
     def get_name(cls):
@@ -86,6 +97,7 @@ class Message(object):
         logger.debug("Waiting to receive on {} for {} seconds".format(name, timeout))
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
         if interface_msg:
+            pout.v(interface_msg.raw.message_attributes)
             try:
                 yield cls(interface_msg.fields)
 
