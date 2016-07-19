@@ -9,11 +9,14 @@ from . import Interface, InterfaceMessage
 
 
 class SQSMessage(InterfaceMessage):
+    """Thin wrapper around the InterfaceMessage to account for SQS keeping internal
+    count and created values"""
     def depart(self):
         return self.fields
 
-    def populate(self, **kwargs):
-        self.fields = kwargs.get("fields", kwargs)
+    def populate(self, fields):
+        if not fields: fields = {}
+        self.fields = fields.get("fields", fields)
         self._count = 0
         self._created = None
 
@@ -37,7 +40,10 @@ class SQS(Interface):
     message_class = SQSMessage
 
     def _connect(self, connection_config):
-        region = connection_config.options.get('region', 'us-west-1')
+        self.connection_config.options['vtimeout_max'] = 43200 # 12 hours max (from Amazon)
+        self.connection_config.options.setdefault('region', 'us-west-1')
+
+        region = self.connection_config.options.get('region')
         self.log("SQS connected to region {}", region)
         self._connection = boto3.resource(
             'sqs',
@@ -69,6 +75,9 @@ class SQS(Interface):
             except ClientError as e:
                 if self._is_client_error_match(e, "AWS.SimpleQueueService.NonExistentQueue"):
                     attrs = {}
+                    # we use max_timeout here because we will release the message
+                    # sooner according to our release algo but on exceptional error
+                    # let's use our global max setting
                     vtimeout = self.connection_config.options.get('max_timeout')
                     if vtimeout:
                         attrs["VisibilityTimeout"] = str(min(vtimeout, 43200))

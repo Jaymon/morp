@@ -40,15 +40,22 @@ def set_interface(interface, connection_name=""):
 
 
 class InterfaceMessage(object):
-    """this is a thin wrapper around all received interface messages"""
+    """this is a thin wrapper around all received interface messages
 
+    An instance of this class exposes these properties:
+        .fields -- contain what will be passed to the backend interface, but also 
+        ._count -- how many times this message has been received from the backend interface
+        ._created -- when this message was first sent
+    """
     @property
     def body(self):
+        """Return the body of the current internal fields"""
         d = self.depart()
         return self._encode(d)
 
     @body.setter
     def body(self, b):
+        """this will take a body and convert it to fields"""
         d = self._decode(b)
         self.update(fields=d)
 
@@ -63,24 +70,40 @@ class InterfaceMessage(object):
         self.update()
 
     def depart(self):
+        """whatever is returned from this method is serialized and placed in the body
+        of the message that is actually sent through the interface. This can return
+        anything since it is serialized but you will probably need to mess with 
+        populate() also since the default implementations expect dicts.
+
+        return -- mixed -- anything you want to send in the message in the form you
+            want to send it
+        """
         return {
             "fields": self.fields,
             "_count": self._count + 1,
             "_created": self._created if self._created else datetime.datetime.utcnow()
         }
 
-    def populate(self, **kwargs):
-        self.fields = kwargs.get("fields", kwargs)
-        self._count = kwargs.get("_count", 0)
-        self._created = kwargs.get("_created", None)
+    def populate(self, fields):
+        """when a message is read from the interface, the unserialized "fields" of
+        the returned body will pass through this message.
+
+        fields -- mixed -- the body, unserialized, read from the backend interface
+        """
+        if not fields: fields = {}
+        self.fields = fields.get("fields", fields)
+        self._count = fields.get("_count", 0)
+        self._created = fields.get("_created", None)
 
     def update(self, fields=None, body=""):
-        if not fields: fields = {}
-
+        """this is the public wrapper around populate(), usually, when you want to 
+        customize functionality you would override populate() and depart() and leave
+        this method alone"""
         # we call this regardless to set defaults
-        self.populate(**fields)
+        self.populate(fields)
 
         if body:
+            # this will override any fields (and defaults) that were set in populate
             self.body = body
 
     def _encode(self, fields):
@@ -153,7 +176,8 @@ class Interface(object):
         if self.connected: return self.connected
         if connection_config: self.connection_config = connection_config
 
-        self.connection_config.options.setdefault('max_timeout', 3600)
+        self.connection_config.options.setdefault('max_timeout', 3600) # 1 hour to process message
+        self.connection_config.options.setdefault('backoff_multiplier', 5) # failure backoff multiplier
 
         try:
             self.connected = False
@@ -261,9 +285,11 @@ class Interface(object):
 
             cnt = interface_msg._count
             if cnt:
+                max_timeout = self.connection_config.options.get("max_timeout")
+                backoff = self.connection_config.options.get("backoff_multiplier")
                 delay_seconds = min(
-                    self.connection_config.options.get("max_timeout"),
-                    (cnt * 5) * cnt
+                    max_timeout,
+                    (cnt * backoff) * cnt
                 )
 
             self._release(name, interface_msg, connection=connection, delay_seconds=delay_seconds)
