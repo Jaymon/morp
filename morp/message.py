@@ -31,6 +31,10 @@ class Message(object):
         print(m.fields) # {"foo": 1, "bar": 2}
     """
 
+    interface_msg = None
+    """this will hold the interface message that was used to send this instance
+    to the backend using interface"""
+
     @decorators.classproperty
     def interface(cls):
         return get_interface(cls.connection_name)
@@ -74,6 +78,7 @@ class Message(object):
             fields = self.fields
             i = self.interface
             interface_msg = self.interface.create_msg(fields=fields)
+            self.interface_msg = interface_msg
             logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
             i.send(name, interface_msg, **kwargs)
 
@@ -97,9 +102,10 @@ class Message(object):
         logger.debug("Waiting to receive on {} for {} seconds".format(name, timeout))
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
         if interface_msg:
-            pout.v(interface_msg.raw.message_attributes)
             try:
-                yield cls(interface_msg.fields)
+                m = cls(interface_msg.fields)
+                m.interface_msg = interface_msg
+                yield m
 
             except Exception as e:
                 if ack_on_recv:

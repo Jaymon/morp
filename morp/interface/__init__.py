@@ -44,41 +44,44 @@ class InterfaceMessage(object):
 
     @property
     def body(self):
-        d = {
-            "fields": self.fields,
-            "_count": self._count,
-            "_created": self._created
-        }
-
+        d = self.depart()
         return self._encode(d)
 
     @body.setter
     def body(self, b):
         d = self._decode(b)
-        self.update(**d)
+        self.update(fields=d)
 
-    def __init__(self, interface):
+    def __init__(self, interface, raw):
         """
         interface -- Interface -- the specific interface to send/receive messages
+        raw -- mixed -- the raw message the interface returned
         """
         self.fields = {} # the original fields you passed to the Interface send method
         self.interface = interface
-        self.raw = None # the raw message the interface returned
+        self.raw = raw
         self.update()
 
-    def update(self, **kwargs):
-        #kwargs.setdefault("_count", 1)
-        #kwargs.setdefault("_created", datetime.datetime.utcnow())
-        if "body" in kwargs:
-            self.body = kwargs["body"]
-            for key in ["fields", "_count", "_created"]:
-                if key in kwargs:
-                    setattr(self, key, kwargs[key])
+    def depart(self):
+        return {
+            "fields": self.fields,
+            "_count": self._count + 1,
+            "_created": self._created if self._created else datetime.datetime.utcnow()
+        }
 
-        else:
-            self.fields = kwargs.get("fields", kwargs)
-            self._count = kwargs.get("_count", 1)
-            self._created = kwargs.get("_created", datetime.datetime.utcnow())
+    def populate(self, **kwargs):
+        self.fields = kwargs.get("fields", kwargs)
+        self._count = kwargs.get("_count", 0)
+        self._created = kwargs.get("_created", None)
+
+    def update(self, fields=None, body=""):
+        if not fields: fields = {}
+
+        # we call this regardless to set defaults
+        self.populate(**fields)
+
+        if body:
+            self.body = body
 
     def _encode(self, fields):
         """prepare a message to be sent over the backend
@@ -136,14 +139,8 @@ class Interface(object):
         """create an interface message that is used to send/receive to the backend
         interface, this message is used to keep the api similar across the different
         methods and backends"""
-        interface_msg = self.message_class(interface=self)
-        if body:
-            interface_msg.update(body=body)
-
-        if fields:
-            interface_msg.update(fields=fields)
-
-        interface_msg.raw = raw
+        interface_msg = self.message_class(interface=self, raw=raw)
+        interface_msg.update(fields=fields, body=body)
         return interface_msg
 
     def _connect(self, connection_config): raise NotImplementedError()
@@ -258,22 +255,24 @@ class Interface(object):
     def release(self, name, interface_msg, **kwargs):
         """release the message back into the queue, this is usually for when processing
         the message has failed and so a new attempt to process the message should be made"""
+        #interface_msg.raw.load()
         with self.connection(**kwargs) as connection:
             delay_seconds = 0
 
-            # ??? INSTEAD OF COUNTER WE COULD USE DISTANCE FROM CREATED DATE
-            interface_msg._count += 1
             cnt = interface_msg._count
-            if cnt > 2:
-                cnt -= 1
+            if cnt:
                 delay_seconds = min(
                     self.connection_config.options.get("max_timeout"),
                     (cnt * 5) * cnt
                 )
 
-            pout.v(delay_seconds)
             self._release(name, interface_msg, connection=connection, delay_seconds=delay_seconds)
-            self.log("Message released back to {} count {}", name, interface_msg._count)
+            self.log(
+                "Message released back to {} count {}, with delay {}s",
+                name,
+                interface_msg._count,
+                delay_seconds
+            )
 
     def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
     def ack(self, name, interface_msg, **kwargs):

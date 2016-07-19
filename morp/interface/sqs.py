@@ -1,20 +1,40 @@
 from __future__ import absolute_import
 from contextlib import contextmanager
+import datetime
 
 import boto3
 from botocore.exceptions import ClientError
 
-from . import Interface
+from . import Interface, InterfaceMessage
+
+
+class SQSMessage(InterfaceMessage):
+    def depart(self):
+        return self.fields
+
+    def populate(self, **kwargs):
+        self.fields = kwargs.get("fields", kwargs)
+        self._count = 0
+        self._created = None
+
+        # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.receive_messages
+        if self.raw:
+            self._count = int(self.raw.attributes.get('ApproximateReceiveCount', 1))
+            created_stamp = int(self.raw.attributes.get('SentTimestamp', 0.0)) / 1000.0
+            if created_stamp:
+                self._created = datetime.datetime.fromtimestamp(created_stamp) 
+
 
 class SQS(Interface):
     """wraps amazon's SQS to make it work with our generic interface
 
-    https://boto.readthedocs.org/en/latest/ref/sqs.html
-    https://boto.readthedocs.org/en/latest/sqs_tut.html
+    http://boto3.readthedocs.io/en/latest/guide/sqs.html
     http://michaelhallsmoore.com/blog/Python-Message-Queues-with-Amazon-Simple-Queue-Service
     http://aws.amazon.com/sqs/
     """
     _connection = None
+
+    message_class = SQSMessage
 
     def _connect(self, connection_config):
         region = connection_config.options.get('region', 'us-west-1')
@@ -25,11 +45,6 @@ class SQS(Interface):
             aws_access_key_id=connection_config.username,
             aws_secret_access_key=connection_config.password
         )
-#         self._connection = sqs.connect_to_region(
-#             region,
-#             aws_access_key_id=connection_config.username,
-#             aws_secret_access_key=connection_config.password
-#         )
 
     def get_connection(self):
         return self._connection
@@ -45,27 +60,28 @@ class SQS(Interface):
     def queue(self, name, connection, **kwargs):
         # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue
         try:
+            q = None
+
             try:
                 q = connection.get_queue_by_name(QueueName=name)
+                yield q
 
-            except Exception as e:
-                # TODO -- this needs to be tightened to the correct error
-                pout.v(e)
-                q = None
-
-            finally:
-                if q is None:
+            except ClientError as e:
+                if self._is_client_error_match(e, "AWS.SimpleQueueService.NonExistentQueue"):
                     attrs = {}
                     vtimeout = self.connection_config.options.get('max_timeout')
                     if vtimeout:
-                        attrs["VisibilityTimeout"] = str(vtimeout)
+                        attrs["VisibilityTimeout"] = str(min(vtimeout, 43200))
 
                     q = connection.create_queue(
                         QueueName=name,
                         Attributes=attrs 
                     )
 
-            yield q
+                    yield q
+
+                else:
+                    raise
 
         except Exception as e:
             self.raise_error(e)
@@ -75,8 +91,6 @@ class SQS(Interface):
             delay_seconds = kwargs.get('delay_seconds', 0)
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.send_message
             q.send_message(MessageBody=body, DelaySeconds=delay_seconds)
-            #m = q.new_message(body=body)
-            #q.write(m, delay_seconds)
 
     def _count(self, name, connection, **kwargs):
         ret = 0
@@ -90,7 +104,7 @@ class SQS(Interface):
                 q.purge()
 
             except ClientError as e:
-                if e.response["Error"]["Code"] != "AWS.SimpleQueueService.PurgeQueueInProgress":
+                if not self._is_client_error_match(e, "AWS.SimpleQueueService.PurgeQueueInProgress"):
                     raise
 
     def _recv(self, name, connection, **kwargs):
@@ -106,11 +120,15 @@ class SQS(Interface):
             body = ''
             raw = None
 
-            kwargs = {"MaxNumberOfMessages": 1}
+            kwargs = {
+                "MaxNumberOfMessages": 1,
+                "AttributeNames": ["ApproximateReceiveCount", "SentTimestamp"],
+            }
+
             if timeout:
                 kwargs["WaitTimeSeconds"] = timeout
             if vtimeout:
-                kwargs["VisibilityTimeout"] = timeout
+                kwargs["VisibilityTimeout"] = min(vtimeout, 43200)
 
             msgs = q.receive_messages(**kwargs)
             if msgs:
@@ -144,5 +162,7 @@ class SQS(Interface):
                 }
             ])
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Message.delete
-            #interface_msg.raw.delete()
+
+    def _is_client_error_match(self, e, code):
+        return e.response["Error"]["Code"] == code
 

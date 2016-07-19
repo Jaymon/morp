@@ -74,6 +74,15 @@ class BaseInterfaceTestCase(TestCase):
 
 class SQSInterfaceTest(BaseInterfaceTestCase):
     interface_class = SQS
+
+    def test_queue_auto_create(self):
+        """SQS queues will auto-create, this just makes sure that works as intended"""
+        i = self.get_interface()
+
+        with i.connection() as connection:
+            with i.queue(testdata.get_ascii(), connection) as q:
+                q.delete()
+
     def test_send_count_recv(self):
         i = self.get_interface()
         n = self.get_name()
@@ -125,6 +134,12 @@ class MessageTest(BaseInterfaceTestCase):
         m = TMsg()
         return m
 
+    def test_fields(self):
+        """just make sure interface_msg doesn't end up in the fields dict"""
+        m = self.get_msg()
+        m.interface_msg = 1
+        self.assertFalse("interface_msg" in m.fields)
+
     def test_backoff(self):
         # TODO make this work
         m = self.get_msg()
@@ -134,13 +149,16 @@ class MessageTest(BaseInterfaceTestCase):
 
         m.send()
 
-        for x in range(3):
+        count = 0
+        for x in range(2):
             with self.assertRaises(RuntimeError):
                 with mcls.recv_block() as m2:
+                    self.assertGreater(m2.interface_msg._count, count)
+                    count = m2.interface_msg._count
                     raise RuntimeError()
 
         with mcls.recv_block() as m2:
-            pout.v(m2)
+            self.assertGreater(m2.interface_msg._count, count)
             self.assertEqual(m2.foo, m.foo)
 
 
@@ -275,4 +293,7 @@ class ConnectionTest(TestCase):
             for k, v in t[1].items():
                 self.assertEqual(v, getattr(c, k))
 
+
+# so test runner won't try and run it
+del BaseInterfaceTestCase
 
