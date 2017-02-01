@@ -238,7 +238,7 @@ class Interface(object):
             raise ValueError("the interface_msg has no fields to send")
 
         with self.connection(**kwargs) as connection:
-            self._send(name, interface_msg.body, connection=connection)
+            self._send(name, interface_msg.body, connection=connection, **kwargs)
             self.log("Message sent to {} -- {}", name, interface_msg.fields)
 
     def _count(self, name, connection, **kwargs): raise NotImplementedError()
