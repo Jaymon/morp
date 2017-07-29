@@ -1,9 +1,12 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals, division, print_function, absolute_import
 import os
 from contextlib import contextmanager
 import logging
 import datetime
 
 from . import decorators
+from .reflection import get_class
 from .interface import get_interface
 
 
@@ -15,6 +18,13 @@ class Message(object):
     this is the base class for sending and handling a message
 
     to add a new message to your application, just subclass this class
+    """
+
+    """
+    Message to be consumed by the generic consumer and passed off the the appropriate
+    consumer.
+    To use, this class should be extended with a function named 'process' that
+    accepts a Morp message object.
     """
 
     connection_name = ""
@@ -35,12 +45,31 @@ class Message(object):
     """this will hold the interface message that was used to send this instance
     to the backend using interface"""
 
+    name = "morp-messages"
+    """The queue name, see get_name()"""
+
     @decorators.classproperty
     def interface(cls):
         return get_interface(cls.connection_name)
 
+    def __new__(cls, fields=None, **fields_kwargs):
+        if cls is Message:
+            # When a generic Message object is created directly it will use the
+            # passed in morp_classpath to create the correct Message child
+            fields = cls.make_dict(fields, fields_kwargs)
+            klass = get_class(fields['morp_classpath'])
+            return super(Message, klass).__new__(klass, fields)
+
+        else:
+            # When a subclass object is created
+            return super(Message, cls).__new__(cls, fields, **fields_kwargs)
+
     def __init__(self, fields=None, **fields_kwargs):
-        fields = self._normalize_dict(fields, fields_kwargs)
+        fields = self.make_dict(fields, fields_kwargs)
+        fields.setdefault("morp_classpath", ".".join([
+            self.__module__,
+            self.__class__.__name__
+        ]))
         self.fields = fields
 
     def __getattr__(self, key):
@@ -66,9 +95,9 @@ class Message(object):
 
     def send(self, **kwargs):
         """send the message using the configured interface for this class"""
-        queue_off = bool(int(os.environ.get('MORP_QUEUE_OFF', 0)))
+        queue_off = bool(int(os.environ.get('MORP_DISABLED', 0)))
         if queue_off:
-            logger.warn("QUEUE OFF - Would have sent {} to {}".format(
+            logger.warn("DISABLED - Would have sent {} to {}".format(
                 self.fields,
                 self.get_name()
             ))
@@ -84,8 +113,8 @@ class Message(object):
 
     @classmethod
     def get_name(cls):
-        name = cls.__name__
-        env_name = os.environ.get('MORP_QUEUE_PREFIX', '')
+        name = cls.name if cls.name else cls.__name__
+        env_name = os.environ.get('MORP_PREFIX', '')
         if env_name:
             name = "{}-{}".format(env_name, name)
 
@@ -93,7 +122,25 @@ class Message(object):
 
     @classmethod
     @contextmanager
-    def recv(cls, timeout=None, **kwargs):
+    def recv(cls, block=True, **kwargs):
+        if block:
+            m = None
+            kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
+            while not m:
+                with cls.recv_for(**kwargs) as m:
+                    if m:
+                        yield m
+
+        else:
+            kwargs.setdefault('timeout', 1)
+            with cls.recv_for(**kwargs) as m:
+                if m:
+                    yield m
+
+
+    @classmethod
+    @contextmanager
+    def recv_for(cls, timeout, **kwargs):
         """try and receive a message, return None if a message is not received
         within timeout"""
         i = cls.interface
@@ -121,23 +168,38 @@ class Message(object):
         else:
             yield None
 
-    @classmethod
-    @contextmanager
-    def recv_block(cls, **kwargs):
-        """similar to recv() but will block until a message is received"""
-        m = None
-        kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
-        while not m:
-            with cls.recv(**kwargs) as m:
-                if m:
-                    yield m
+#     @classmethod
+#     @contextmanager
+#     def recv_block(cls, **kwargs):
+#         """similar to recv() but will block until a message is received"""
+#         m = None
+#         kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
+#         while not m:
+#             with cls.recv(**kwargs) as m:
+#                 if m:
+#                     yield m
+# 
+#     @classmethod
+#     def recv_one(cls, timeout=None, **kwargs):
+#         """this is just syntactic sugar around recv that receives, acknowledges, and
+#         then returns the message"""
+#         with cls.recv(timeout=timeout, **kwargs) as m:
+#             return m
 
     @classmethod
-    def recv_one(cls, timeout=None, **kwargs):
-        """this is just syntactic sugar around recv that receives, acknowledges, and
-        then returns the message"""
-        with cls.recv(timeout=timeout, **kwargs) as m:
-            return m
+    def handle(cls, count=0, **kwargs):
+        """wait for messages to come in and handle them by calling the incoming
+        message's target() method
+
+        :param count: int, if you only want to handle N messages, pass in count
+        :param **kwargs: any other params will get passed to underlying recv methods
+        """
+        max_count = count
+        count = 0
+        while not max_count or count < max_count:
+            with cls.recv(**kwargs) as m:
+                m.target()
+                count += 1
 
     @classmethod
     def create(cls, fields=None, **fields_kwargs):
@@ -153,20 +215,27 @@ class Message(object):
 
     @classmethod
     def clear(cls):
+        """clear the whole message queue"""
         n = cls.get_name()
         return cls.interface.clear(n)
 
     @classmethod
     def count(cls):
+        """how many messages total (approximately) are in the whole message queue"""
         n = cls.get_name()
         return cls.interface.count(n)
 
     @classmethod
-    def _normalize_dict(cls, fields, fields_kwargs):
+    def make_dict(cls, fields, fields_kwargs):
         """lot's of methods take a dict or kwargs, this combines those"""
         if not fields: fields = {}
         if fields_kwargs:
             fields.update(fields_kwargs)
 
         return fields
+
+    def target(self):
+        """This method will be called from handle() and can handle any processing
+        of the message"""
+        raise NotImplementedError()
 

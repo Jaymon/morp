@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals, division, print_function, absolute_import
 import logging
 import sys
 from contextlib import contextmanager
@@ -23,6 +25,7 @@ interfaces = {}
 
 
 def get_interfaces():
+    global interfaces
     return interfaces
 
 
@@ -47,6 +50,10 @@ class InterfaceMessage(object):
         ._count -- how many times this message has been received from the backend interface
         ._created -- when this message was first sent
     """
+    @property
+    def _id(self):
+        raise NotImplementedError()
+
     @property
     def body(self):
         """Return the body of the current internal fields"""
@@ -271,7 +278,12 @@ class Interface(object):
             )
             if body:
                 interface_msg = self.create_msg(body=body, raw=raw)
-                self.log("Message received from {} -- {}", name, interface_msg.fields)
+                self.log(
+                    "Message {} received from {} -- {}",
+                    interface_msg._id,
+                    name,
+                    interface_msg.fields
+                )
 
             return interface_msg
 
@@ -294,7 +306,8 @@ class Interface(object):
 
             self._release(name, interface_msg, connection=connection, delay_seconds=delay_seconds)
             self.log(
-                "Message released back to {} count {}, with delay {}s",
+                "Message {} released back to {} count {}, with delay {}s",
+                interface_msg._id,
                 name,
                 interface_msg._count,
                 delay_seconds
@@ -305,7 +318,7 @@ class Interface(object):
         """this will acknowledge that the interface message was received successfully"""
         with self.connection(**kwargs) as connection:
             self._ack(name, interface_msg, connection=connection)
-            self.log("Message acked from {} -- {}", name, interface_msg.fields)
+            self.log("Message {} acked from {}", interface_msg._id, name)
 
     def _clear(self, name, connection, **kwargs): raise NotImplementedError()
     def clear(self, name, **kwargs):

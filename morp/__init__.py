@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals, division, print_function, absolute_import
 import os
 
 from .config import DsnConnection, Connection
@@ -8,7 +10,7 @@ from .message import Message
 from .exception import InterfaceError
 
 
-__version__ = '0.3.6'
+__version__ = '1.0.0'
 
 
 def configure_environ(dsn_env_name='MORP_DSN'):

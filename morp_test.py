@@ -1,27 +1,103 @@
-#from unittest import TestCase
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals, division, print_function, absolute_import
 import logging
 import sys
 import time
 import os
 from unittest import TestCase
+import inspect
+import subprocess
 
 import testdata
 
 #import morp
 from morp import Message, Connection, DsnConnection
 from morp.interface.sqs import SQS
+from morp.interface import get_interfaces
 
 
 # configure root logger
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 log_handler = logging.StreamHandler(stream=sys.stderr)
-log_formatter = logging.Formatter('[%(levelname)s] %(message)s')
+log_formatter = logging.Formatter('[%(levelname).1s] %(message)s')
 log_handler.setFormatter(log_formatter)
 logger.addHandler(log_handler)
 
 logger = logging.getLogger('boto3')
 logger.setLevel(logging.WARNING)
+logger = logging.getLogger('botocore')
+logger.setLevel(logging.WARNING)
+
+
+class Client(object):
+    """makes running a captain script nice and easy for easy testing"""
+    def __init__(self, modulepath, contents):
+        module_info = testdata.create_module(modulepath, contents=contents)
+        self.directory = module_info.basedir
+        self.module = module_info.module
+        self.message_classes = []
+
+        clear_names = {}
+        for _, message_class in inspect.getmembers(self.module, inspect.isclass):
+            if issubclass(message_class, Message):
+                clear_names[message_class.get_name()] = message_class
+                self.message_classes.append(message_class)
+
+        for message_class in clear_names.values():
+            message_class.clear()
+
+    def send(self, **fields):
+        return self.message_classes[0].create(fields)
+
+    def recv(self):
+        return self.run(self.message_classes[0].name)
+
+    def run(self, name, count=1, **options):
+        python_cmd = subprocess.check_output(["which", "python"]).strip()
+        cmd = "{} -m morp --count={} --directory={} {}".format(
+            python_cmd,
+            count,
+            self.directory,
+            name
+        )
+        expected_ret_code = options.get('code', 0)
+
+        is_py2 = True
+        is_py3 = False
+
+        def get_output_str(output):
+            if is_py2:
+                return "\n".join(output)
+            elif is_py3:
+                return "\n".join((o.decode("utf-8") for o in output))
+
+        output = []
+        try:
+            process = subprocess.Popen(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=os.getcwd()
+            )
+
+            for line in iter(process.stdout.readline, b""):
+                line = line.rstrip()
+                print(line)
+                output.append(line)
+
+            process.wait()
+            if process.returncode != expected_ret_code:
+                raise RuntimeError("cmd returned {} with output: {}".format(
+                    process.returncode,
+                    get_output_str(output)
+                ))
+
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError("cmd returned {} with output: {}".format(e.returncode, e.output))
+
+        return get_output_str(output)
 
 
 class BaseInterfaceTestCase(TestCase):
@@ -152,12 +228,12 @@ class MessageTest(BaseInterfaceTestCase):
         count = 0
         for x in range(2):
             with self.assertRaises(RuntimeError):
-                with mcls.recv_block() as m2:
+                with mcls.recv() as m2:
                     self.assertGreater(m2.interface_msg._count, count)
                     count = m2.interface_msg._count
                     raise RuntimeError()
 
-        with mcls.recv_block() as m2:
+        with mcls.recv() as m2:
             self.assertGreater(m2.interface_msg._count, count)
             self.assertEqual(m2.foo, m.foo)
 
@@ -169,10 +245,10 @@ class MessageTest(BaseInterfaceTestCase):
         m.send()
 
         with self.assertRaises(RuntimeError):
-            with mcls.recv_block() as m2:
+            with mcls.recv() as m2:
                 raise RuntimeError()
 
-        with mcls.recv_block() as m2:
+        with mcls.recv() as m2:
             self.assertEqual(m2.foo, m.foo)
 
     def test_send_recv(self):
@@ -190,7 +266,7 @@ class MessageTest(BaseInterfaceTestCase):
         m.bar = 20
         m.send()
 
-        with m.__class__.recv_block() as m2:
+        with m.__class__.recv() as m2:
             self.assertEqual(m.fields, m2.fields)
 
     def test_recv_block_error(self):
@@ -205,18 +281,18 @@ class MessageTest(BaseInterfaceTestCase):
         }
 
         with self.assertRaises(RuntimeError):
-            with mcls.recv_block(**kwargs) as m2:
+            with mcls.recv(**kwargs) as m2:
                 raise RuntimeError()
 
         time.sleep(1.2)
 
         kwargs["ack_on_recv"] = True
         with self.assertRaises(RuntimeError):
-            with mcls.recv_block(**kwargs) as m2:
+            with mcls.recv(**kwargs) as m2:
                 raise RuntimeError()
 
         time.sleep(1.2)
-        with mcls.recv(timeout=1) as m2:
+        with mcls.recv_for(timeout=1) as m2:
             self.assertEqual(None, m2)
 
 
@@ -292,6 +368,28 @@ class ConnectionTest(TestCase):
             c = DsnConnection(t[0])
             for k, v in t[1].items():
                 self.assertEqual(v, getattr(c, k))
+
+
+class CLITest(TestCase):
+    def test_consume(self):
+        c = Client("tcli.consume", [
+            "from morp import Message",
+            "",
+            "class Consume(Message):",
+            "    def target(self):",
+            "        print(self.text)"
+            "",
+            "class Consume2(Consume):",
+            "    pass",
+        ])
+
+        m = c.message_classes[0].create(text="foobar")
+        r = c.recv()
+        self.assertTrue(m.text in r)
+
+        m = c.message_classes[1].create(text="bazche")
+        r = c.recv()
+        self.assertTrue(m.text in r)
 
 
 # so test runner won't try and run it

@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals, division, print_function, absolute_import
 from contextlib import contextmanager
 import datetime
 
@@ -11,6 +12,10 @@ from . import Interface, InterfaceMessage
 class SQSMessage(InterfaceMessage):
     """Thin wrapper around the InterfaceMessage to account for SQS keeping internal
     count and created values"""
+    @property
+    def _id(self):
+        return self.raw.message_id
+
     def depart(self):
         return self.fields
 
