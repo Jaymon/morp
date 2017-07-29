@@ -217,7 +217,8 @@ class MessageTest(BaseInterfaceTestCase):
         self.assertFalse("interface_msg" in m.fields)
 
     def test_backoff(self):
-        # TODO make this work
+        # TODO make this work with a backoff, this test works but doesn't do any
+        # sort of visibility backoff
         m = self.get_msg()
         mcls = m.__class__
         foo = testdata.get_int()
