@@ -8,6 +8,7 @@ import datetime
 from . import decorators
 from .reflection import get_class
 from .interface import get_interface
+from .exception import ReleaseMessage, AckMessage
 
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class Message(object):
 
     def __init__(self, fields=None, **fields_kwargs):
         fields = self.make_dict(fields, fields_kwargs)
+        self.interface_msg = fields.pop("interface_msg", None)
         fields.setdefault("morp_classpath", ".".join([
             self.__module__,
             self.__class__.__name__
@@ -111,6 +113,14 @@ class Message(object):
             logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
             i.send(name, interface_msg, **kwargs)
 
+    def send_later(self, delay_seconds, **kwargs):
+        """Send the message after delay_seconds
+
+        :param delay_seconds: int, up to 900 (15 minutes) per SQS docs
+        """
+        kwargs["delay_seconds"] = delay_seconds
+        return self.send(**kwargs)
+
     @classmethod
     def get_name(cls):
         name = cls.name if cls.name else cls.__name__
@@ -154,6 +164,12 @@ class Message(object):
                 m.interface_msg = interface_msg
                 yield m
 
+            except ReleaseMessage as e:
+                i.release(name, interface_msg, delay_seconds=e.delay_seconds)
+
+            except AckMessage as e:
+                i.ack(name, interface_msg)
+
             except Exception as e:
                 if ack_on_recv:
                     i.ack(name, interface_msg)
@@ -167,24 +183,6 @@ class Message(object):
 
         else:
             yield None
-
-#     @classmethod
-#     @contextmanager
-#     def recv_block(cls, **kwargs):
-#         """similar to recv() but will block until a message is received"""
-#         m = None
-#         kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
-#         while not m:
-#             with cls.recv(**kwargs) as m:
-#                 if m:
-#                     yield m
-# 
-#     @classmethod
-#     def recv_one(cls, timeout=None, **kwargs):
-#         """this is just syntactic sugar around recv that receives, acknowledges, and
-#         then returns the message"""
-#         with cls.recv(timeout=timeout, **kwargs) as m:
-#             return m
 
     @classmethod
     def handle(cls, count=0, **kwargs):
@@ -238,4 +236,21 @@ class Message(object):
         """This method will be called from handle() and can handle any processing
         of the message"""
         raise NotImplementedError()
+
+    def ack(self):
+        interface_msg = self.interface_msg
+        # ??? - should this throw an exception if interface_msg is None?
+        if interface_msg:
+            name = cls.get_name()
+            cls.interface.ack(name, interface_msg)
+
+    def release(self, **kwargs):
+        interface_msg = self.interface_msg
+        # ??? - should this throw an exception if interface_msg is None?
+        if interface_msg:
+            name = cls.get_name()
+            cls.interface.release(name, interface_msg, **kwargs)
+
+    def release_later(self, delay_seconds):
+        return self.release(delay_seconds=delay_seconds)
 

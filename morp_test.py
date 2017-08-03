@@ -14,6 +14,7 @@ import testdata
 from morp import Message, Connection, DsnConnection
 from morp.interface.sqs import SQS
 from morp.interface import get_interfaces
+from morp.exception import ReleaseMessage, AckMessage
 
 
 # configure root logger
@@ -252,6 +253,35 @@ class MessageTest(BaseInterfaceTestCase):
         with mcls.recv() as m2:
             self.assertEqual(m2.foo, m.foo)
 
+    def test_release_message(self):
+        m = self.get_msg()
+        mcls = m.__class__
+        m.foo = 10
+        m.send()
+
+        with mcls.recv() as m2:
+            raise ReleaseMessage(2)
+
+        with mcls.recv_for(1) as m2:
+            self.assertEqual(None, m2)
+
+        time.sleep(1)
+
+        with mcls.recv_for(1) as m2:
+            self.assertEqual(m.foo, m2.foo)
+
+    def test_ack_message(self):
+        m = self.get_msg()
+        mcls = m.__class__
+        m.foo = 10
+        m.send()
+
+        with mcls.recv() as m2:
+            raise AckMessage()
+
+        with mcls.recv_for(timeout=1) as m2:
+            self.assertEqual(None, m2)
+
     def test_send_recv(self):
         m = self.get_msg()
         m.foo = 1
@@ -259,6 +289,20 @@ class MessageTest(BaseInterfaceTestCase):
         m.send()
 
         with m.__class__.recv() as m2:
+            self.assertEqual(m.fields, m2.fields)
+
+    def test_send_later(self):
+        m = self.get_msg()
+        m.foo = 1
+        m.bar = 2
+        m.send_later(2)
+
+        with m.__class__.recv_for(1) as m2:
+            self.assertEqual(None, m2)
+
+        time.sleep(1)
+
+        with m.__class__.recv_for(1) as m2:
             self.assertEqual(m.fields, m2.fields)
 
     def test_recv_block(self):
@@ -305,16 +349,16 @@ class ConnectionTest(TestCase):
 
         key = testdata.get_ascii(100)
         c = Connection(options=dict(key=key))
-        self.assertNotEqual("", c.key)
+        self.assertNotEqual(b"", b"{}".format(c.key))
         self.assertEqual(c.key, c.key)
 
         key_path = testdata.create_file("morp.key", testdata.get_ascii(100))
         c = Connection(options=dict(keyfile=key_path))
-        self.assertNotEqual("", c.key)
+        self.assertNotEqual(b"", b"{}".format(c.key))
         self.assertEqual(c.key, c.key)
 
         c = Connection(options=dict(key=key, keyfile=key_path))
-        self.assertNotEqual("", c.key)
+        self.assertNotEqual(b"", b"{}".format(c.key))
         c2 = Connection(options=dict(key=key, keyfile=key_path))
         self.assertEqual(c.key, c2.key)
 

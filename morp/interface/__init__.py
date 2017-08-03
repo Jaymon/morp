@@ -293,16 +293,17 @@ class Interface(object):
         the message has failed and so a new attempt to process the message should be made"""
         #interface_msg.raw.load()
         with self.connection(**kwargs) as connection:
-            delay_seconds = 0
+            delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
 
-            cnt = interface_msg._count
-            if cnt:
-                max_timeout = self.connection_config.options.get("max_timeout")
-                backoff = self.connection_config.options.get("backoff_multiplier")
-                delay_seconds = min(
-                    max_timeout,
-                    (cnt * backoff) * cnt
-                )
+            if delay_seconds == 0:
+                cnt = interface_msg._count
+                if cnt:
+                    max_timeout = self.connection_config.options.get("max_timeout")
+                    backoff = self.connection_config.options.get("backoff_multiplier")
+                    delay_seconds = min(
+                        max_timeout,
+                        (cnt * backoff) * cnt
+                    )
 
             self._release(name, interface_msg, connection=connection, delay_seconds=delay_seconds)
             self.log(
@@ -336,7 +337,7 @@ class Interface(object):
         **log_options --
         level -- something like logging.DEBUG
         """
-        log_level = log_options.get('level', logging.DEBUG)
+        log_level = getattr(logging, log_options.get('level', "DEBUG").upper())
         if logger.isEnabledFor(log_level):
             try:
                 if isinstance(format_str, Exception):
