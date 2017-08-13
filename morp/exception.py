@@ -15,7 +15,8 @@ class InterfaceError(Error):
 
 
 class ReleaseMessage(InterfaceError):
-    """Can be raised anytime to get the message to be released
+    """Can be raised anytime in a recv() with block or target() method to get the
+    message to be released
 
     :param delay_seconds: int, how long until message is released to be processed
         again, the visibility timeout 
@@ -26,7 +27,8 @@ class ReleaseMessage(InterfaceError):
 
 
 class AckMessage(InterfaceError):
-    """Can be raised anytime to get the message to be acknowledged"""
+    """Can be raised anytime in a recv() with block or target() method to get the
+    message to be acknowledged"""
     def __init__(self):
         super(AckMessage, self).__init__("")
 
