@@ -1,26 +1,42 @@
 #!/usr/bin/env python
-# http://docs.python.org/distutils/setupscript.html
-# http://docs.python.org/2/distutils/examples.html
-
 from setuptools import setup, find_packages
 import re
 import os
+from codecs import open
 
 
 name = "morp"
-with open(os.path.join(name, "__init__.py")) as f:
-    version = re.search("^__version__\s*=\s*[\'\"]([^\'\"]+)", f.read(), flags=re.I | re.M).group(1)
+kwargs = {"name": name}
+
+def read(path):
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+    return ""
+
+
+vpath = os.path.join(name, "__init__.py")
+if os.path.isfile(vpath):
+    kwargs["packages"] = find_packages(exclude=["tests", "tests.*", "examples"])
+else:
+    vpath = "{}.py".format(name)
+    kwargs["py_modules"] = [name]
+kwargs["version"] = re.search(r"^__version__\s*=\s*[\'\"]([^\'\"]+)", read(vpath), flags=re.I | re.M).group(1)
+
+kwargs["long_description"] = read('README.rst')
+
+kwargs["tests_require"] = []
+kwargs["install_requires"] = ['dsnparse', 'boto3', 'pycrypto']
+
 
 setup(
-    name=name,
-    version=version,
     description='Send and receive messages without thinking about it',
+    keywords="Amazon AWS SQS messages message-passing",
     author='Jay Marcyes',
     author_email='jay@marcyes.com',
-    url='http://github.com/firstopinion/{}'.format(name),
+    url='http://github.com/Jaymon/{}'.format(name),
     packages=find_packages(),
     license="MIT",
-    install_requires=['dsnparse', 'boto3', 'pycrypto'],
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
         'Development Status :: 4 - Beta',
         'Environment :: Web Environment',

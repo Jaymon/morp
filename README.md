@@ -2,8 +2,6 @@
 
 Send messages without really thinking about it. Currently works with Amazon's [SQS](http://aws.amazon.com/sqs/).
 
-Morp was crafted with love for [First Opinion](http://firstopinionapp.com).
-
 
 ## 1 Minute Getting Started
 
