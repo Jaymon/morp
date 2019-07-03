@@ -17,7 +17,7 @@ def read(path):
 
 vpath = os.path.join(name, "__init__.py")
 if os.path.isfile(vpath):
-    kwargs["packages"] = find_packages(exclude=["tests", "tests.*", "examples"])
+    kwargs["packages"] = find_packages(exclude=["tests", "tests.*", "*_test*", "examples"])
 else:
     vpath = "{}.py".format(name)
     kwargs["py_modules"] = [name]
@@ -35,7 +35,6 @@ setup(
     author='Jay Marcyes',
     author_email='jay@marcyes.com',
     url='http://github.com/Jaymon/{}'.format(name),
-    packages=find_packages(),
     license="MIT",
     classifiers=[ # https://pypi.python.org/pypi?:action=list_classifiers
         'Development Status :: 4 - Beta',
