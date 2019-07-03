@@ -54,4 +54,5 @@ setup(
         ],
     },
     #test_suite = "{}_test".format(name),
+    **kwargs
 )
