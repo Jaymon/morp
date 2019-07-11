@@ -80,7 +80,6 @@ class QuietAction(argparse.Action):
         else:
             levels = "".join(set(self.OPTIONS) - set(val.upper()))
 
-        pout.v(levels)
         class LevelFilter(object):
             def __init__(self, levels):
                 self.levels = levels.upper()
