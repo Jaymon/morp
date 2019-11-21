@@ -23,7 +23,9 @@ else:
     kwargs["py_modules"] = [name]
 kwargs["version"] = re.search(r"^__version__\s*=\s*[\'\"]([^\'\"]+)", read(vpath), flags=re.I | re.M).group(1)
 
-kwargs["long_description"] = read('README.rst')
+# https://pypi.org/help/#description-content-type
+kwargs["long_description"] = read('README.md')
+kwargs["long_description_content_type"] = "text/markdown"
 
 kwargs["tests_require"] = []
 kwargs["install_requires"] = ['dsnparse', 'boto3', 'pycrypto']
@@ -46,6 +48,7 @@ setup(
         'Topic :: Software Development :: Libraries',
         'Topic :: Utilities',
         'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
     ],
     entry_points = {
         'console_scripts': [

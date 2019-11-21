@@ -2,11 +2,30 @@
 from __future__ import unicode_literals, division, print_function, absolute_import
 from contextlib import contextmanager
 import datetime
+import re
+import itertools
 
 import boto3
 from botocore.exceptions import ClientError
 
+from ..compat import *
 from . import Interface, InterfaceMessage
+
+
+class Region(String):
+    def __new__(cls, region_name):
+        if not region_name:
+            session = boto3.Session()
+            region_name = session.region_name
+            if not region_name:
+                raise ValueError("No region name found")
+
+        return super(Region, cls).__new__(cls, region_name)
+
+    @classmethod
+    def names(cls):
+        session = boto3.Session()
+        return session.get_available_regions("ec2")
 
 
 class SQSMessage(InterfaceMessage):
@@ -36,6 +55,8 @@ class SQSMessage(InterfaceMessage):
 class SQS(Interface):
     """wraps amazon's SQS to make it work with our generic interface
 
+    https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html
+    https://boto.readthedocs.org/en/latest/ref/sqs.html
     http://boto3.readthedocs.io/en/latest/guide/sqs.html
     http://michaelhallsmoore.com/blog/Python-Message-Queues-with-Amazon-Simple-Queue-Service
     http://aws.amazon.com/sqs/
@@ -46,11 +67,12 @@ class SQS(Interface):
 
     def _connect(self, connection_config):
         self.connection_config.options['vtimeout_max'] = 43200 # 12 hours max (from Amazon)
-        self.connection_config.options.setdefault('region', 'us-west-1')
+        self.connection_config.options['region'] = Region(self.connection_config.options.get('region', ''))
 
         region = self.connection_config.options.get('region')
         self.log("SQS connected to region {}", region)
         self._connection = boto3.resource(
+        #self._connection = boto3.client(
             'sqs',
             region_name=region,
             aws_access_key_id=connection_config.username,
@@ -61,11 +83,58 @@ class SQS(Interface):
         return self._connection
 
     def _close(self):
-        """I can't find a close in the docs, so not doing anything
+        """closes out the client and gets rid of connection"""
+        if self._connection:
+            client = self._connection.meta.client
+            self._close_client(client)
 
-        https://boto.readthedocs.org/en/latest/ref/sqs.html
-        """
         self._connection = None
+
+    def _close_client(self, client):
+        """closes open sessions on client
+
+        this code comes from: 
+            https://github.com/boto/botocore/pull/1810
+
+        it closes the connections to fix unclosed connection warnings in py3
+
+        Specifically, this warning:
+
+            ResourceWarning: unclosed <ssl.SSLSocket ...
+            ResourceWarning: Enable tracemalloc to get the object allocation tracebac
+
+        see also:
+            https://github.com/boto/boto3/issues/454
+            https://github.com/boto/botocore/pull/1231
+
+        this might also be a good/alternate solution for this problem:
+            https://github.com/boto/boto3/issues/454#issuecomment-335614919
+
+        :param client: an amazon services client whose sessions will be closed
+        """
+        client._endpoint.http_session._manager.clear()
+        for manager in client._endpoint.http_session._proxy_managers.values():
+            manager.close()
+
+    def get_attrs(self, **kwargs):
+        attrs = {}
+        options = self.connection_config.options
+
+        # we use max_timeout here because we will release the message
+        # sooner according to our release algo but on exceptional error
+        # let's use our global max setting
+        vtimeout = options.get('max_timeout')
+        if vtimeout:
+            # if not string fails with:
+            # Invalid type for parameter Attributes.VisibilityTimeout, value: 3600,
+            # type: <type 'int'>, valid types: <type 'basestring'>
+            attrs["VisibilityTimeout"] = String(min(vtimeout, options["vtimeout_max"]))
+
+        for k, v in itertools.chain(options.items(), kwargs.items()):
+            if re.match("^[A-Z][a-zA-Z]+$", k):
+                attrs[k] = v
+
+        return attrs
 
     @contextmanager
     def queue(self, name, connection, **kwargs):
@@ -78,15 +147,8 @@ class SQS(Interface):
                 yield q
 
             except ClientError as e:
-                if self._is_client_error_match(e, "AWS.SimpleQueueService.NonExistentQueue"):
-                    attrs = {}
-                    # we use max_timeout here because we will release the message
-                    # sooner according to our release algo but on exceptional error
-                    # let's use our global max setting
-                    vtimeout = self.connection_config.options.get('max_timeout')
-                    if vtimeout:
-                        attrs["VisibilityTimeout"] = str(min(vtimeout, 43200))
-
+                if self._is_client_error_match(e, ["AWS.SimpleQueueService.NonExistentQueue"]):
+                    attrs = self.get_attrs(**kwargs)
                     q = connection.create_queue(
                         QueueName=name,
                         Attributes=attrs 
@@ -99,6 +161,10 @@ class SQS(Interface):
 
         except Exception as e:
             self.raise_error(e)
+
+        finally:
+            if q:
+                self._close_client(q.meta.client)
 
     def _send(self, name, body, connection, **kwargs):
         with self.queue(name, connection) as q:
@@ -123,8 +189,33 @@ class SQS(Interface):
                 q.purge()
 
             except ClientError as e:
-                if not self._is_client_error_match(e, "AWS.SimpleQueueService.PurgeQueueInProgress"):
+                if not self._is_client_error_match(e, ["AWS.SimpleQueueService.PurgeQueueInProgress"]):
                     raise
+
+    def _delete(self, name, connection, **kwargs):
+        # !!! this doesn't work because it tries to create the queue
+        #with self.queue(name, connection) as q:
+        #    q.delete()
+
+        client = None
+        try:
+            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.get_queue_url
+            # https://stackoverflow.com/q/38581465/5006
+            client = connection.meta.client
+            queue_url = client.get_queue_url(QueueName=name)["QueueUrl"]
+            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_queue
+            client.delete_queue(QueueUrl=queue_url)
+
+        except ClientError as e:
+            if not self._is_client_error_match(e, [
+                "AWS.SimpleQueueService.QueueDeletedRecently",
+                "AWS.SimpleQueueService.NonExistentQueue",
+            ]):
+                raise
+
+        finally:
+            if client:
+                self._close_client(client)
 
     def _recv(self, name, connection, **kwargs):
         # if timeout isn't set then this will return immediately with no values
@@ -154,6 +245,7 @@ class SQS(Interface):
                 raw = msgs[0]
                 body = raw.body
 
+
             return body, raw
 
     def _release(self, name, interface_msg, connection, **kwargs):
@@ -182,6 +274,6 @@ class SQS(Interface):
             ])
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Message.delete
 
-    def _is_client_error_match(self, e, code):
-        return e.response["Error"]["Code"] == code
+    def _is_client_error_match(self, e, codes):
+        return e.response["Error"]["Code"] in codes
 

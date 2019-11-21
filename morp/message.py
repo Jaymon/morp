@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import logging
 import datetime
 
+from .compat import *
 from . import decorators
 from .reflection import get_class
 from .interface import get_interface
@@ -42,7 +43,7 @@ class Message(object):
         print(m.fields) # {"foo": 1, "bar": 2}
     """
 
-    interface_msg = None
+    interface_message = None
     """this will hold the interface message that was used to send this instance
     to the backend using interface"""
 
@@ -59,15 +60,15 @@ class Message(object):
             # passed in morp_classpath to create the correct Message child
             fields = cls.make_dict(fields, fields_kwargs)
             klass = get_class(fields['morp_classpath'])
-            return super(Message, klass).__new__(klass, fields)
+            return super(Message, klass).__new__(klass)
 
         else:
             # When a subclass object is created
-            return super(Message, cls).__new__(cls, fields, **fields_kwargs)
+            return super(Message, cls).__new__(cls)
 
     def __init__(self, fields=None, **fields_kwargs):
         fields = self.make_dict(fields, fields_kwargs)
-        self.interface_msg = fields.pop("interface_msg", None)
+        self.interface_message = fields.pop("interface_message", None)
         fields.setdefault("morp_classpath", ".".join([
             self.__module__,
             self.__class__.__name__
@@ -108,8 +109,8 @@ class Message(object):
             name = self.get_name()
             fields = self.fields
             i = self.interface
-            interface_msg = self.interface.create_msg(fields=fields)
-            self.interface_msg = interface_msg
+            interface_msg = self.interface.create_message(name=name, fields=fields)
+            self.interface_message = interface_msg
             logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
             i.send(name, interface_msg, **kwargs)
 
@@ -161,7 +162,7 @@ class Message(object):
         if interface_msg:
             try:
                 m = cls(interface_msg.fields)
-                m.interface_msg = interface_msg
+                m.interface_message = interface_msg
                 yield m
 
             except ReleaseMessage as e:
@@ -238,14 +239,14 @@ class Message(object):
         raise NotImplementedError()
 
     def ack(self):
-        interface_msg = self.interface_msg
+        interface_msg = self.interface_message
         # ??? - should this throw an exception if interface_msg is None?
         if interface_msg:
             name = cls.get_name()
             cls.interface.ack(name, interface_msg)
 
     def release(self, **kwargs):
-        interface_msg = self.interface_msg
+        interface_msg = self.interface_message
         # ??? - should this throw an exception if interface_msg is None?
         if interface_msg:
             name = cls.get_name()

@@ -1,6 +1,6 @@
 # Morp
 
-Send messages without really thinking about it. Currently works with Amazon's [SQS](http://aws.amazon.com/sqs/).
+Send [Amazon SQS](http://aws.amazon.com/sqs/) messages without really thinking about it.
 
 
 ## 1 Minute Getting Started
@@ -57,21 +57,22 @@ You can also override some default values like `region` and `read_lock`:
 
 ## Encryption
 
-If you would like to encrypt all your messages, you can pass in a `key` or `keyfile` argument to your dsn that either contains a key or a path to a key file and Morp will take care of encrypting and decrypting the messages for you transparently.
+If you would like to encrypt all your messages, you can pass in a `key` argument to your dsn that either contains a key or a path to a key file and Morp will take care of encrypting and decrypting the messages for you transparently.
 
-If we just want to have a key, let's just modify our dsn:
+Let's just modify our dsn to pass in our key:
 
     morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?key=jy4XWRuEsrH98RD2VeLG62uVLCPWpdUh
 
-To use a keyfile, let's first generate a key file:
-
-    openssl rand -base64 256 > /tmp/keyfile.key
-
-And modify our dsn:
-
-    morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?keyfile=/tmp/keyfile.key
-
 That's it, every message will now be encrypted on send and decrypted on receive.
+
+
+### Amazon KMS
+
+What if you want to use [Amazon's Key Management Service](https://aws.amazon.com/kms/)? Then just set the `KmsMasterKeyId` value on your dsn:
+
+    morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?KmsMasterKeyId=alias/aws/sqs
+    
+You can also use [your own key](https://docs.aws.amazon.com/kms/latest/developerguide/create-keys.html) by using the key ID, which would be a value like: `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXXX` as the value for `KmsMasterKeyId`
 
 
 ## Environment configuration
@@ -112,7 +113,11 @@ $ morp --quiet="" custom-queue-name
 
 ## Installation
 
-Use pip:
+Use pip to install the latest stable version:
 
     pip install morp
+    
+To install the development version:
+
+    pip install -U "git+https://github.com/Jaymon/morp#egg=morp"
 

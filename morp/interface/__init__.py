@@ -6,14 +6,10 @@ from contextlib import contextmanager
 import base64
 import datetime
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
 from Crypto import Random
 from Crypto.Cipher import AES
 
+from ..compat import *
 from ..exception import InterfaceError
 
 
@@ -66,15 +62,22 @@ class InterfaceMessage(object):
         d = self._decode(b)
         self.update(fields=d)
 
-    def __init__(self, interface, raw):
+    def __init__(self, name, interface, raw):
         """
         interface -- Interface -- the specific interface to send/receive messages
         raw -- mixed -- the raw message the interface returned
         """
+        self.name = name
         self.fields = {} # the original fields you passed to the Interface send method
         self.interface = interface
         self.raw = raw
         self.update()
+
+    def send(self):
+        return self.interface.send(self.name, self)
+
+    def ack(self):
+        return self.interface.ack(self.name, self)
 
     def depart(self):
         """whatever is returned from this method is serialized and placed in the body
@@ -128,7 +131,7 @@ class InterfaceMessage(object):
             aes = AES.new(key, AES.MODE_CFB, iv)
             ret = iv + aes.encrypt(ret)
 
-        ret = base64.b64encode(ret)
+        ret = String(base64.b64encode(ret))
         return ret
 
     def _decode(self, body):
@@ -165,13 +168,14 @@ class Interface(object):
     def __init__(self, connection_config=None):
         self.connection_config = connection_config
 
-    def create_msg(self, fields=None, body=None, raw=None):
+    def create_message(self, name, fields=None, body=None, raw=None):
         """create an interface message that is used to send/receive to the backend
         interface, this message is used to keep the api similar across the different
         methods and backends"""
-        interface_msg = self.message_class(interface=self, raw=raw)
+        interface_msg = self.message_class(name, interface=self, raw=raw)
         interface_msg.update(fields=fields, body=body)
         return interface_msg
+    create_msg = create_message
 
     def _connect(self, connection_config): raise NotImplementedError()
     def connect(self, connection_config=None):
@@ -238,7 +242,7 @@ class Interface(object):
         """send a message to message queue name
 
         name -- string -- the queue name
-        interface_msg -- InterfaceMessage() -- an instance of InterfaceMessage, see self.create_msg()
+        interface_msg -- InterfaceMessage() -- an instance of InterfaceMessage, see self.create_message()
         **kwargs -- dict -- anything else, this gets passed to self.connection()
         """
         if not interface_msg.fields:
@@ -277,7 +281,7 @@ class Interface(object):
                 **kwargs
             )
             if body:
-                interface_msg = self.create_msg(body=body, raw=raw)
+                interface_msg = self.create_message(name, body=body, raw=raw)
                 self.log(
                     "Message {} received from {} -- {}",
                     interface_msg._id,
@@ -328,6 +332,12 @@ class Interface(object):
             self._clear(name, connection=connection)
             self.log("Messages cleared from {}", name)
 
+    def _delete(self, name, connection, **kwargs): raise NotImplementedError()
+    def unsafe_delete(self, name, **kwargs):
+        with self.connection(**kwargs) as connection:
+            self._delete(name, connection=connection)
+            self.log("Queue {} deleted", name)
+
     def log(self, format_str, *format_args, **log_options):
         """
         wrapper around the module's logger
@@ -357,5 +367,6 @@ class Interface(object):
             exc_info = sys.exc_info()
         if not isinstance(e, InterfaceError):
             e = InterfaceError(e, exc_info)
-        raise e.__class__, e, exc_info[2]
+
+        reraise(e.__class__, e, exc_info[2])
 

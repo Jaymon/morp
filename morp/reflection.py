@@ -10,7 +10,8 @@ def get_class(full_python_class_path):
     Note -- this will fail when the object isn't accessible from the module, that means
     you can't define your class object in a function and expect this function to work
 
-    example -- THIS IS BAD --
+    :Example:
+        # -- THIS IS BAD --
         def foo():
             class FooCannotBeFound(object): pass
             # this will fail

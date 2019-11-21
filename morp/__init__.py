@@ -2,18 +2,20 @@
 from __future__ import unicode_literals, division, print_function, absolute_import
 import os
 
+import dsnparse
+
+from .compat import *
 from .config import DsnConnection, Connection
 from . import decorators
 from .interface import get_interface, set_interface, get_interfaces
-from . import reflection
 from .message import Message
 from .exception import InterfaceError
 
 
-__version__ = '1.0.1'
+__version__ = '2.0.0'
 
 
-def configure_environ(dsn_env_name='MORP_DSN'):
+def configure_environ(dsn_env_name='MORP_DSN', connection_class=DsnConnection):
     """
     configure interfaces based on environment variables
 
@@ -28,20 +30,12 @@ def configure_environ(dsn_env_name='MORP_DSN'):
 
     dsn_env_name -- string -- the name of the environment variables prefix
     """
-    if dsn_env_name in os.environ:
-        configure(os.environ[dsn_env_name])
-
-    # now try importing 1 -> N dsns
-    increment_name = lambda name, num: '{}_{}'.format(name, num)
-    dsn_num = 1
-    dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
-    while dsn_env_num_name in os.environ:
-        configure(os.environ[dsn_env_num_name])
-        dsn_num += 1
-        dsn_env_num_name = increment_name(dsn_env_name, dsn_num)
+    cs = dsnparse.parse_environs(dsn_env_name, parse_class=connection_class)
+    for c in cs:
+        set_interface(c.interface, c.name)
 
 
-def configure(dsn):
+def configure(dsn, connection_class=DsnConnection):
     """
     configure an interface to be used to send messages to a backend
 
@@ -51,15 +45,8 @@ def configure(dsn):
     dsn -- string -- a properly formatted prom dsn, see DsnConnection for how to format the dsn
     """
     #global interfaces
-
-    c = DsnConnection(dsn)
-    if c.name in get_interfaces():
-        raise ValueError('a connection named "{}" has already been configured'.format(c.name))
-
-    interface_class = reflection.get_class(c.interface_name)
-    i = interface_class(c)
-    set_interface(i, c.name)
-    return i
+    c = dsnparse.parse(dsn, parse_class=connection_class)
+    set_interface(c.interface, c.name)
 
 
 configure_environ()

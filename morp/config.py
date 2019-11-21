@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals, division, print_function, absolute_import
 import hashlib
+import os
 
 import dsnparse
+
+from .compat import *
+from . import reflection
 
 
 class Connection(object):
@@ -26,21 +30,29 @@ class Connection(object):
     """dict -- any other interface specific options you need"""
 
     @property
+    def interface_class(self):
+        interface_class = reflection.get_class(self.interface_name)
+        return interface_class
+
+    @property
+    def interface(self):
+        interface_class = self.interface_class
+        return interface_class(self)
+
+    @property
     def key(self):
-        """string -- an encryption key loaded from options['keyfile'], or options['key'],
+        """string -- an encryption key loaded from options['key'],
         it must be 32 bytes long so this makes sure it is"""
         if not hasattr(self, '_key'):
-            key = ""
-            keyfile = self.options.get('keyfile')
-            if keyfile:
-                with open(keyfile, 'r') as f:
-                    key = f.read().strip()
-
-            else:
-                key = self.options.get('key', "")
+            key = self.options.get('key', "")
+            if key:
+                # !!! deprecated 2019-11-16, key shouldn't be a file anymore
+                if os.path.isfile(key):
+                    with open(key, 'r') as f:
+                        key = f.read().strip()
 
             # key must be 32 characters long
-            self._key = hashlib.sha256(key).digest() if key else ""
+            self._key = ByteString(key).sha256() if key else ""
 
         return self._key
 
@@ -61,7 +73,7 @@ class Connection(object):
         self.options = kwargs.pop('options', {})
         self.hosts = []
 
-        for key, val in kwargs.iteritems():
+        for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
             else:
@@ -85,28 +97,46 @@ class DsnConnection(Connection):
         morp.interface.sqs.SQS://AWS_ID:AWS_KEY@
     """
     def __init__(self, dsn):
+        d = self.parse(dsn)
+        super(DsnConnection, self).__init__(**d)
 
+    @classmethod
+    def parse(cls, dsn):
         d = {'options': {}, 'hosts': []}
-        p = dsnparse.parse(dsn)
+        p = dsnparse.ParseResult.parse(dsn)
 
         # get the scheme, which is actually our interface_name
-        d['interface_name'] = p.scheme
+        d['interface_name'] = cls.normalize_scheme(p["scheme"])
 
         dsn_hosts = []
-        if p.hostname:
-            d['hosts'].append((p.hostname, getattr(p, 'port', None)))
+        if "hostname" in p:
+            d['hosts'].append((p["hostname"], p.get('port', None)))
 
-        if p.query:
-            d['options'] = p.query
+        d['options'] = p["query"] or {}
 
-        if p.username:
-            d['username'] = p.username
+        if "username" in p:
+            d['username'] = p["username"]
 
-        if p.password:
-            d['password'] = p.password
+        if "password" in p:
+            d['password'] = p["password"]
 
-        if p.fragment:
-            d['name'] = p.fragment
+        if "fragment" in p:
+            d['name'] = p["fragment"]
 
-        super(DsnConnection, self).__init__(**d)
+        return d
+
+    @classmethod
+    def normalize_scheme(cls, v):
+        ret = v
+        d = {
+            "morp.interface.sqs.SQS": set(["sqs"]),
+        }
+
+        kv = v.lower()
+        for interface_name, vals in d.items():
+            if kv in vals:
+                ret = interface_name
+                break
+
+        return ret
 

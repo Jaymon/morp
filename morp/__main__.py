@@ -7,6 +7,7 @@ import os
 import logging
 import logging.config
 
+from morp.compat import *
 from morp import Message, __version__
 
 
@@ -186,7 +187,7 @@ def console():
 
     # we want to make sure the directory can be imported from since chances are
     # the message classes live in that directory
-    basepath = os.path.abspath(os.path.expanduser(str(args.directory)))
+    basepath = os.path.abspath(os.path.expanduser(String(args.directory)))
     sys.path.append(basepath)
 
     Message.name = args.name
