@@ -6,8 +6,7 @@ from contextlib import contextmanager
 import base64
 import datetime
 
-from Crypto import Random
-from Crypto.Cipher import AES
+from cryptography.fernet import Fernet
 
 from ..compat import *
 from ..exception import InterfaceError
@@ -126,12 +125,12 @@ class InterfaceMessage(object):
         key = self.interface.connection_config.key
         if key:
             logger.debug("Encrypting fields")
-            # http://stackoverflow.com/questions/1220751/
-            iv = Random.new().read(AES.block_size)
-            aes = AES.new(key, AES.MODE_CFB, iv)
-            ret = iv + aes.encrypt(ret)
+            f = Fernet(key)
+            ret = String(f.encrypt(ByteString(ret)))
 
-        ret = String(base64.b64encode(ret))
+        else:
+            ret = String(base64.b64encode(ret))
+
         return ret
 
     def _decode(self, body):
@@ -140,13 +139,14 @@ class InterfaceMessage(object):
         body -- string -- the body to be converted to a dict
         return -- dict -- the fields of the original message
         """
-        ret = base64.b64decode(body)
         key = self.interface.connection_config.key
         if key:
             logger.debug("Decoding encrypted body")
-            iv = ret[:AES.block_size]
-            aes = AES.new(key, AES.MODE_CFB, iv)
-            ret = aes.decrypt(ret[AES.block_size:])
+            f = Fernet(key)
+            ret = f.decrypt(ByteString(body))
+
+        else:
+            ret = base64.b64decode(body)
 
         ret = pickle.loads(ret)
         return ret

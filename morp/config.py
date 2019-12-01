@@ -2,6 +2,7 @@
 from __future__ import unicode_literals, division, print_function, absolute_import
 import hashlib
 import os
+import base64
 
 import dsnparse
 
@@ -51,8 +52,8 @@ class Connection(object):
                     with open(key, 'r') as f:
                         key = f.read().strip()
 
-            # key must be 32 characters long
-            self._key = ByteString(key).sha256() if key else ""
+            # Fernet key must be 32 url-safe base64-encoded bytes
+            self._key = base64.b64encode(ByteString(key).sha256()) if key else ""
 
         return self._key
 

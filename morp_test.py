@@ -113,10 +113,10 @@ class BaseInterfaceTestCase(TestCase):
 
     interfaces = defaultdict(list)
 
-    def setUp(self):
-        i = self.get_interface()
-        n = self.get_name()
-        i.clear(n)
+#     def setUp(self):
+#         i = self.get_interface()
+#         n = self.get_name()
+#         i.clear(n)
 
     @classmethod
     def tearDownClass(cls):
@@ -162,7 +162,7 @@ class BaseInterfaceTestCase(TestCase):
         if testdata.yes():
             options['key'] = testdata.create_file("/morp.key", testdata.get_ascii(100))
         else:
-            options['key'] = testdata.get_ascii(32)
+            options['key'] = testdata.get_ascii(testdata.get_int(10, 200))
 
         if config:
             for k, v in options.items():
@@ -204,6 +204,15 @@ class BaseInterfaceTestCase(TestCase):
 
         if not ret:
             self.assertEqual(v1, callback(), msg)
+
+    def test_message_encode_decode(self):
+        fields = {"foo": testdata.get_words(), "bar": testdata.get_int()}
+        i = self.get_encrypted_interface()
+
+        im = self.create_message(name="message-lifecycle", interface=i, **fields)
+        cipher_text = im.body
+        im2 = i.create_message(name="message-lifecycle", body=cipher_text)
+        self.assertEqual(fields, im2.fields)
 
 
 class SQSInterfaceTest(BaseInterfaceTestCase):
