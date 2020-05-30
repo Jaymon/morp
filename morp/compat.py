@@ -89,6 +89,16 @@ class ByteString(Bytes):
         bytes(s) # calls __str__ and returns ByteString
     """
     def __new__(cls, val=b"", encoding="UTF-8", errors="replace"):
+        """
+        :param val: mixed, the value you are casting to bytes
+        :param encoding: string, the string encoding to use to encode/decode
+        :param errors: string, how to handle errors, built-in values are:
+            strict,
+            ignore,
+            replace,
+            xmlcharrefreplace,
+            backslashreplace
+        """
         if isinstance(val, type(None)): return None
 
         if not isinstance(val, (bytes, bytearray)):
@@ -146,6 +156,16 @@ class String(Str):
         bytes(s) # calls __str__ and returns ByteString
     """
     def __new__(cls, val="", encoding="UTF-8", errors="replace"):
+        """
+        :param val: mixed, the value you are casting to a string
+        :param encoding: string, the string encoding to use to encode/decode
+        :param errors: string, how to handle errors, built-in values are:
+            strict,
+            ignore,
+            replace,
+            xmlcharrefreplace,
+            backslashreplace
+        """
         if isinstance(val, type(None)): return None
 
         if not isinstance(val, (Str, int)):
