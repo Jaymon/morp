@@ -12,7 +12,7 @@ from .message import Message
 from .exception import InterfaceError
 
 
-__version__ = '3.0.0'
+__version__ = '3.0.1'
 
 
 def configure_environ(dsn_env_name='MORP_DSN', connection_class=DsnConnection):

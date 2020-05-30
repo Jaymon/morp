@@ -88,7 +88,7 @@ class ByteString(Bytes):
         unicode(s) # calls __unicode__ and returns String
         bytes(s) # calls __str__ and returns ByteString
     """
-    def __new__(cls, val=b"", encoding="UTF-8"):
+    def __new__(cls, val=b"", encoding="UTF-8", errors="replace"):
         if isinstance(val, type(None)): return None
 
         if not isinstance(val, (bytes, bytearray)):
@@ -101,14 +101,15 @@ class ByteString(Bytes):
 
         instance = super(ByteString, cls).__new__(cls, val)
         instance.encoding = encoding
+        instance.errors = errors
         return instance
 
     def __str__(self):
         return self if is_py2 else self.unicode()
 
     def unicode(self):
-        s = self.decode(self.encoding)
-        return String(s)
+        s = self.decode(self.encoding, self.errors)
+        return String(s, self.encoding, self.errors)
     __unicode__ = unicode
 
     def bytes(self):
@@ -144,14 +145,15 @@ class String(Str):
         unicode(s) # calls __unicode__ and returns String
         bytes(s) # calls __str__ and returns ByteString
     """
-    def __new__(cls, val="", encoding="UTF-8"):
+    def __new__(cls, val="", encoding="UTF-8", errors="replace"):
         if isinstance(val, type(None)): return None
 
         if not isinstance(val, (Str, int)):
-            val = ByteString(val, encoding).unicode()
+            val = ByteString(val, encoding, errors).unicode()
 
         instance = super(String, cls).__new__(cls, val)
         instance.encoding = encoding
+        instance.errors = errors
         return instance
 
     def __str__(self):
@@ -163,7 +165,7 @@ class String(Str):
 
     def bytes(self):
         s = self.encode(self.encoding)
-        return ByteString(s)
+        return ByteString(s, self.encoding, self.errors)
     __bytes__ = bytes
 
     def raw(self):
