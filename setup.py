@@ -28,7 +28,7 @@ kwargs["long_description"] = read('README.md')
 kwargs["long_description_content_type"] = "text/markdown"
 
 kwargs["tests_require"] = []
-kwargs["install_requires"] = ['dsnparse', 'boto3', 'cryptography']
+kwargs["install_requires"] = ['dsnparse', 'boto3', 'cryptography', 'captain']
 
 
 setup(
