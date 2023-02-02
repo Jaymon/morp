@@ -31,6 +31,8 @@ def configure_environ(dsn_env_name='MORP_DSN', connection_class=DsnConnection):
     dsn_env_name -- string -- the name of the environment variables prefix
     """
     cs = dsnparse.parse_environs(dsn_env_name, parse_class=connection_class)
+    if not cs:
+        raise InterfaceError("No interfaces configured, please set {} or {}_N in the environment".format(dsn_env_name, dsn_env_name))
     for c in cs:
         set_interface(c.interface, c.name)
 
