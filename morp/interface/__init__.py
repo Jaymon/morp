@@ -5,6 +5,7 @@ import sys
 from contextlib import contextmanager
 import base64
 import datetime
+import json
 
 from cryptography.fernet import Fernet
 
@@ -139,16 +140,21 @@ class InterfaceMessage(object):
         body -- string -- the body to be converted to a dict
         return -- dict -- the fields of the original message
         """
+        serializer = self.interface.connection_config.options.get("serializer", "pickle")
         key = self.interface.connection_config.key
         if key:
             logger.debug("Decoding encrypted body")
             f = Fernet(key)
             ret = f.decrypt(ByteString(body))
 
-        else:
+        if serializer == "pickle":
             ret = base64.b64decode(body)
+            ret = pickle.loads(ret)
+        elif serializer == "json":
+            ret = json.loads(body)
+        else:
+            raise InterfaceError("Unknown serializer {}".format(serializer))
 
-        ret = pickle.loads(ret)
         return ret
 
 
