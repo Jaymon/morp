@@ -18,7 +18,8 @@ import morp
 
 
 class Foo(morp.Message):
-    name = "example-foo"
+    name = "queue1"
+
     def target(self):
         print("bar: {}, che {}".format(self.bar, self.che))
 
@@ -27,7 +28,7 @@ f = Foo()
 f.morp_classpath = "send.Foo"
 f.bar = random.randint(0, 500)
 f.che = random.randint(0, 500)
-print "sending: {}".format(f.fields)
+print("sending: {}".format(f.fields))
 f.send()
 
 
