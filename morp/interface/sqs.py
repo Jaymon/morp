@@ -71,12 +71,19 @@ class SQS(Interface):
 
         region = self.connection_config.options.get('region')
         self.log("SQS connected to region {}", region)
+
+        # support for passing boto3 kwargs from the connection config
+        boto_kwargs = {}
+        for opt in self.connection_config.options:
+            if opt.startswith("boto_"):
+                boto_kwargs[opt.replace("boto_", "")] = self.connection_config.options[opt]
+
         self._connection = boto3.resource(
-        #self._connection = boto3.client(
             'sqs',
             region_name=region,
             aws_access_key_id=connection_config.username,
-            aws_secret_access_key=connection_config.password
+            aws_secret_access_key=connection_config.password,
+            **boto_kwargs
         )
 
     def get_connection(self):
