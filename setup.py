@@ -27,7 +27,7 @@ kwargs["version"] = re.search(r"^__version__\s*=\s*[\'\"]([^\'\"]+)", read(vpath
 kwargs["long_description"] = read('README.md')
 kwargs["long_description_content_type"] = "text/markdown"
 
-kwargs["tests_require"] = []
+kwargs["tests_require"] = ["testdata"]
 kwargs["install_requires"] = ['dsnparse', 'boto3', 'cryptography']
 
 
