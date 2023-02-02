@@ -71,7 +71,7 @@ That's it, every message will now be encrypted on send and decrypted on receive.
 What if you want to use [Amazon's Key Management Service](https://aws.amazon.com/kms/)? Then just set the `KmsMasterKeyId` value on your dsn:
 
     morp.interface.sqs.SQS://AWS_ID:AWS_KEY@?KmsMasterKeyId=alias/aws/sqs
-    
+
 You can also use [your own key](https://docs.aws.amazon.com/kms/latest/developerguide/create-keys.html) by using the key ID, which would be a value like: `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXXX` as the value for `KmsMasterKeyId`
 
 
@@ -116,8 +116,41 @@ $ morp --quiet="" custom-queue-name
 Use pip to install the latest stable version:
 
     pip install morp
-    
+
 To install the development version:
 
     pip install -U "git+https://github.com/Jaymon/morp#egg=morp"
 
+### To work locally:
+
+```
+git clone https://github.com/Jaymon/morp
+cd morp
+```
+
+Optional:
+```
+python3 - venv .venv && source .venv/bin/activate
+```
+
+Install package with pip `editable` mode
+```
+pip install -e .
+```
+
+---
+
+Set up a local sqs (optional):
+https://github.com/softwaremill/elasticmq
+
+```
+MORP_DSN="morp.interface.sqs.SQS://x:x@?region=elasticmq&boto_endpoint_url=http://localhost:9324"
+```
+
+### Serializers
+* `pickle` (default) [decode|encode]
+* `json` [decode only]
+
+```
+MORP_DSN="morp.interface.sqs.SQS://x:x@?serializer=json"
+```
