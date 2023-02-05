@@ -5,9 +5,10 @@ from contextlib import contextmanager
 import logging
 import datetime
 
+from datatypes import ReflectClass, make_dict, classproperty
+
 from .compat import *
 from . import decorators
-from .reflection import get_class
 from .interface import get_interface
 from .exception import ReleaseMessage, AckMessage
 
@@ -20,15 +21,14 @@ class Message(object):
     this is the base class for sending and handling a message
 
     to add a new message to your application, just subclass this class
-    """
 
-    """
-    Message to be consumed by the generic consumer and passed off the the appropriate
-    consumer.
-    To use, this class should be extended with a function named 'process' that
-    accepts a Morp message object.
-    """
+    By default, all subclasses will go to the same queue and then when the queue
+    is consumed the correct child class will be created and consume the message
+    with its .target() method.
 
+    If you would like your subclass to use a different queue then just set .name
+    property on the class and it qill use a different queue
+    """
     connection_name = ""
     """the name of the connection to use to retrieve the interface"""
 
@@ -44,36 +44,24 @@ class Message(object):
     """
 
     interface_message = None
-    """this will hold the interface message that was used to send this instance
-    to the backend using interface"""
+    """When a Message subclass instance is created on the receiving end it will
+    be passed the raw interface message which will be set into this property. This
+    is also set when the message instance is sent (see .send())
+    """
 
     name = "morp-messages"
-    """The queue name, see get_name()"""
+    """The queue name, see .get_name()"""
 
-    @decorators.classproperty
+    classpath_key = "morp_message_classpath"
+    """The key that will be used to hold the Message's child class's full classpath,
+    see .hydrate()"""
+
+    @classproperty
     def interface(cls):
         return get_interface(cls.connection_name)
 
-    def __new__(cls, fields=None, **fields_kwargs):
-        if cls is Message:
-            # When a generic Message object is created directly it will use the
-            # passed in morp_classpath to create the correct Message child
-            fields = cls.make_dict(fields, fields_kwargs)
-            klass = get_class(fields['morp_classpath'])
-            return super(Message, klass).__new__(klass)
-
-        else:
-            # When a subclass object is created
-            return super(Message, cls).__new__(cls)
-
     def __init__(self, fields=None, **fields_kwargs):
-        fields = self.make_dict(fields, fields_kwargs)
-        self.interface_message = fields.pop("interface_message", None)
-        fields.setdefault("morp_classpath", ".".join([
-            self.__module__,
-            self.__class__.__name__
-        ]))
-        self.fields = fields
+        self.fields = self.make_dict(fields, fields_kwargs)
 
     def __getattr__(self, key):
         if hasattr(self.__class__, key):
@@ -99,20 +87,18 @@ class Message(object):
     def send(self, **kwargs):
         """send the message using the configured interface for this class"""
         queue_off = bool(int(os.environ.get('MORP_DISABLED', 0)))
+        name = self.get_name()
+        fields = self.to_interface()
         if queue_off:
-            logger.warn("DISABLED - Would have sent {} to {}".format(
-                self.fields,
-                self.get_name()
+            logger.warning("DISABLED - Would have sent {} to {}".format(
+                fields,
+                name,
             ))
 
         else:
-            name = self.get_name()
-            fields = self.fields
-            i = self.interface
-            interface_msg = self.interface.create_message(name=name, fields=fields)
-            self.interface_message = interface_msg
+            self.interface_message = self.interface.create_message(name=name, fields=fields)
             logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
-            i.send(name, interface_msg, **kwargs)
+            self.interface.send(name, self.interface_message, **kwargs)
 
     def send_later(self, delay_seconds, **kwargs):
         """Send the message after delay_seconds
@@ -124,7 +110,7 @@ class Message(object):
 
     @classmethod
     def get_name(cls):
-        name = cls.name if cls.name else cls.__name__
+        name = cls.name
         env_name = os.environ.get('MORP_PREFIX', '')
         if env_name:
             name = "{}-{}".format(env_name, name)
@@ -161,9 +147,7 @@ class Message(object):
         interface_msg = i.recv(name, timeout=timeout, **kwargs)
         if interface_msg:
             try:
-                m = cls(interface_msg.fields)
-                m.interface_message = interface_msg
-                yield m
+                yield cls.hydrate(interface_msg)
 
             except ReleaseMessage as e:
                 i.release(name, interface_msg, delay_seconds=e.delay_seconds)
@@ -213,7 +197,7 @@ class Message(object):
         return instance
 
     @classmethod
-    def clear(cls):
+    def unsafe_clear(cls):
         """clear the whole message queue"""
         n = cls.get_name()
         return cls.interface.clear(n)
@@ -227,11 +211,38 @@ class Message(object):
     @classmethod
     def make_dict(cls, fields, fields_kwargs):
         """lot's of methods take a dict or kwargs, this combines those"""
-        if not fields: fields = {}
-        if fields_kwargs:
-            fields.update(fields_kwargs)
+        return make_dict(fields, fields_kwargs)
 
+    @classmethod
+    def get_class(cls, classpath):
+        """wrapper to make it easier to do this in child classes, which seems to
+        happen quite frequently"""
+        return ReflectClass.get_class(classpath)
+
+    @classmethod
+    def hydrate(cls, interface_message):
+        fields = interface_message.fields
+        message_class = cls
+
+        if cls is Message:
+            # When a generic Message instance is used to consume messages it
+            # will use the passed in classpath to create the correct Message child
+            message_class = cls.get_class(fields[cls.classpath_key])
+
+        instance = message_class()
+        instance.interface_message = interface_message
+        instance.from_interface(fields)
+
+        return instance
+
+    def to_interface(self):
+        fields = self.fields
+        fields.setdefault(self.classpath_key, ReflectClass.get_classpath(self))
         return fields
+
+    def from_interface(self, fields):
+        for k, v in fields.items():
+            self.fields[k] = v
 
     def target(self):
         """This method will be called from handle() and can handle any processing

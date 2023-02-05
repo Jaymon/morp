@@ -5,6 +5,8 @@ import os
 import base64
 
 import dsnparse
+from datatypes import ReflectClass
+from datatypes import property as cachedproperty
 
 from .compat import *
 from . import reflection
@@ -32,7 +34,7 @@ class Connection(object):
 
     @property
     def interface_class(self):
-        interface_class = reflection.get_class(self.interface_name)
+        interface_class = ReflectClass.get_class(self.interface_name)
         return interface_class
 
     @property
@@ -40,22 +42,21 @@ class Connection(object):
         interface_class = self.interface_class
         return interface_class(self)
 
-    @property
+    @cachedproperty(cached="_key")
     def key(self):
         """string -- an encryption key loaded from options['key'],
         it must be 32 bytes long so this makes sure it is"""
-        if not hasattr(self, '_key'):
-            key = self.options.get('key', "")
-            if key:
-                # !!! deprecated 2019-11-16, key shouldn't be a file anymore
-                if os.path.isfile(key):
-                    with open(key, 'r') as f:
-                        key = f.read().strip()
+        key = self.options.get('key', "")
+        if key:
+            # !!! deprecated 2019-11-16, key shouldn't be a file anymore
+            if os.path.isfile(key):
+                with open(key, 'r') as f:
+                    key = f.read().strip()
 
-            # Fernet key must be 32 url-safe base64-encoded bytes
-            self._key = base64.b64encode(ByteString(key).sha256()) if key else ""
+        # Fernet key must be 32 url-safe base64-encoded bytes
+        key = base64.b64encode(ByteString(key).sha256()) if key else ""
 
-        return self._key
+        return key
 
     def __init__(self, **kwargs):
         """
@@ -99,7 +100,7 @@ class DsnConnection(Connection):
     """
     def __init__(self, dsn):
         d = self.parse(dsn)
-        super(DsnConnection, self).__init__(**d)
+        super().__init__(**d)
 
     @classmethod
     def parse(cls, dsn):

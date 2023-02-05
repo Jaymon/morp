@@ -28,7 +28,7 @@ kwargs["long_description"] = read('README.md')
 kwargs["long_description_content_type"] = "text/markdown"
 
 kwargs["tests_require"] = []
-kwargs["install_requires"] = ['dsnparse', 'boto3', 'cryptography']
+kwargs["install_requires"] = ['dsnparse', 'boto3', 'cryptography', 'datatypes']
 
 
 setup(
@@ -47,7 +47,6 @@ setup(
         'Topic :: Database',
         'Topic :: Software Development :: Libraries',
         'Topic :: Utilities',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
     ],
     entry_points = {
