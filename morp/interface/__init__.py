@@ -7,8 +7,10 @@ import base64
 import datetime
 
 from cryptography.fernet import Fernet
+import dsnparse
 
 from ..compat import *
+from ..config import DsnConnection
 from ..exception import InterfaceError
 
 
@@ -21,20 +23,68 @@ interfaces = {}
 
 def get_interfaces():
     global interfaces
+    if not interfaces:
+        configure_environ()
     return interfaces
 
 
 def get_interface(connection_name=""):
     """get the configured interface that corresponds to connection_name"""
     global interfaces
-    i = interfaces[connection_name]
-    return i
+    if not interfaces:
+        configure_environ()
+    return interfaces[connection_name]
 
 
 def set_interface(interface, connection_name=""):
     """bind an .interface.Interface() instance to connection_name"""
     global interfaces
     interfaces[connection_name] = interface
+
+
+def find_environ(dsn_env_name='MORP_DSN', connection_class=DsnConnection):
+    """Returns Connection instances found in the environment
+
+    configure interfaces based on environment variables
+
+    by default, when morp is imported, it will look for MORP_DSN, and MORP_DSN_N (where
+    N is 1 through infinity) in the environment, if it finds them, it will assume they
+    are dsn urls that morp understands and will configure connections with them. If you
+    don't want this behavior (ie, you want to configure morp manually) then just make sure
+    you don't have any environment variables with matching names
+
+    The num checks (eg MORP_DSN_1, MORP_DSN_2) go in order, so you can't do MORP_DSN_1, MORP_DSN_3,
+    because it will fail on _2 and move on, so make sure your num dsns are in order (eg, 1, 2, 3, ...)
+
+    :param dsn_env_name: str, the environment variable name to find the DSN, this
+        will aslo check for values of <dsn_env_name>_N where N is 1 -> N, so you
+        can configure multiple DSNs in the environment and this will pick them all
+        up
+    :param connection_class: Connection, the class that will receive the dsn values
+    :returns: generator<connection_class>
+    """
+    return dsnparse.parse_environs(dsn_env_name, parse_class=connection_class)
+
+
+def configure_environ():
+    """auto hook to configure the environment"""
+    for c in find_environ():
+        inter = c.interface
+        set_interface(c.interface, c.name)
+
+
+def configure(dsn, connection_class=DsnConnection):
+    """
+    configure an interface to be used to send messages to a backend
+
+    you use this function to configure an Interface using a dsn, then you can get
+    that interface using the get_interface() method
+
+    :param dsn: string, a properly formatted morp dsn, see DsnConnection for how to format the dsn
+    """
+    #global interfaces
+    c = dsnparse.parse(dsn, parse_class=connection_class)
+    set_interface(c.interface, c.name)
 
 
 class InterfaceMessage(object):
@@ -49,71 +99,82 @@ class InterfaceMessage(object):
     def _id(self):
         raise NotImplementedError()
 
-    @property
-    def body(self):
-        """Return the body of the current internal fields"""
-        d = self.depart()
-        return self._encode(d)
+#     @property
+#     def body(self):
+#         """Return the body of the current internal fields"""
+#         d = self.depart()
+#         return self._encode(d)
+# 
+#     @body.setter
+#     def body(self, b):
+#         """this will take a body and convert it to fields"""
+#         d = self._decode(b)
+#         self.update(fields=d)
 
-    @body.setter
-    def body(self, b):
-        """this will take a body and convert it to fields"""
-        d = self._decode(b)
-        self.update(fields=d)
-
-    def __init__(self, name, interface, raw):
+    def __init__(self, name, interface, fields=None, raw=None):
         """
         interface -- Interface -- the specific interface to send/receive messages
         raw -- mixed -- the raw message the interface returned
         """
         self.name = name
-        self.fields = {} # the original fields you passed to the Interface send method
+        self.fields = fields or {} # the original fields you passed to the Interface send method
         self.interface = interface
         self.raw = raw
-        self.update()
+        self.body = None
+        #self.update()
 
-    def send(self):
-        return self.interface.send(self.name, self)
+#     def send(self):
+#         return self.interface.send(self.name, self)
+# 
+#     def ack(self):
+#         return self.interface.ack(self.name, self)
 
-    def ack(self):
-        return self.interface.ack(self.name, self)
+    def to_interface(self):
+        return self._encode(self.fields)
 
-    def depart(self):
-        """whatever is returned from this method is serialized and placed in the body
-        of the message that is actually sent through the interface. This can return
-        anything since it is serialized but you will probably need to mess with 
-        populate() also since the default implementations expect dicts.
+    def from_interface(self, body):
+        self.body = body
+        fields = self._decode(body)
+        for k, v in fields.items():
+            self.fields[k] = v
+        #self.fields = fields or {}
 
-        return -- mixed -- anything you want to send in the message in the form you
-            want to send it
-        """
-        return {
-            "fields": self.fields,
-            "_count": self._count + 1,
-            "_created": self._created if self._created else datetime.datetime.utcnow()
-        }
+#     def depart(self):
+#         """whatever is returned from this method is serialized and placed in the body
+#         of the message that is actually sent through the interface. This can return
+#         anything since it is serialized but you will probably need to mess with 
+#         populate() also since the default implementations expect dicts.
+# 
+#         return -- mixed -- anything you want to send in the message in the form you
+#             want to send it
+#         """
+#         return {
+#             "fields": self.fields,
+#             "_count": self._count + 1,
+#             "_created": self._created if self._created else datetime.datetime.utcnow()
+#         }
 
-    def populate(self, fields):
-        """when a message is read from the interface, the unserialized "fields" of
-        the returned body will pass through this message.
-
-        fields -- mixed -- the body, unserialized, read from the backend interface
-        """
-        if not fields: fields = {}
-        self.fields = fields.get("fields", fields)
-        self._count = fields.get("_count", 0)
-        self._created = fields.get("_created", None)
-
-    def update(self, fields=None, body=""):
-        """this is the public wrapper around populate(), usually, when you want to 
-        customize functionality you would override populate() and depart() and leave
-        this method alone"""
-        # we call this regardless to set defaults
-        self.populate(fields)
-
-        if body:
-            # this will override any fields (and defaults) that were set in populate
-            self.body = body
+#     def populate(self, fields):
+#         """when a message is read from the interface, the unserialized "fields" of
+#         the returned body will pass through this message.
+# 
+#         fields -- mixed -- the body, unserialized, read from the backend interface
+#         """
+#         if not fields: fields = {}
+#         self.fields = fields.get("fields", fields)
+#         self._count = fields.get("_count", 0)
+#         self._created = fields.get("_created", None)
+# 
+#     def update(self, fields=None, body=""):
+#         """this is the public wrapper around populate(), usually, when you want to 
+#         customize functionality you would override populate() and depart() and leave
+#         this method alone"""
+#         # we call this regardless to set defaults
+#         self.populate(fields)
+# 
+#         if body:
+#             # this will override any fields (and defaults) that were set in populate
+#             self.body = body
 
     def _encode(self, fields):
         """prepare a message to be sent over the backend
@@ -168,14 +229,21 @@ class Interface(object):
     def __init__(self, connection_config=None):
         self.connection_config = connection_config
 
-    def create_message(self, name, fields=None, body=None, raw=None):
+    def create_imessage(self, name, fields=None, body=None, raw=None):
         """create an interface message that is used to send/receive to the backend
         interface, this message is used to keep the api similar across the different
         methods and backends"""
-        interface_msg = self.message_class(name, interface=self, raw=raw)
-        interface_msg.update(fields=fields, body=body)
-        return interface_msg
-    create_msg = create_message
+        if fields:
+            imessage = self.message_class(name=name, interface=self, fields=fields)
+
+        elif body:
+            imessage = self.message_class(name=name, interface=self, raw=raw)
+            imessage.from_interface(body)
+
+        else:
+            raise ValueError("Could not create imessage")
+
+        return imessage
 
     def _connect(self, connection_config): raise NotImplementedError()
     def connect(self, connection_config=None):
@@ -186,9 +254,6 @@ class Interface(object):
 
         if self.connected: return self.connected
         if connection_config: self.connection_config = connection_config
-
-        self.connection_config.options.setdefault('max_timeout', 3600) # 1 hour to process message
-        self.connection_config.options.setdefault('backoff_multiplier', 5) # failure backoff multiplier
 
         try:
             self.connected = False
@@ -232,25 +297,35 @@ class Interface(object):
         except Exception as e:
             self.raise_error(e)
 
-    def _send(self, name, body, connection, **kwargs):
+    def _send(self, name, connection, body, **kwargs):
         """similar to self.send() but this takes a body, which is the message
         completely encoded and ready to be sent by the backend, instead of an
         interface_msg() instance"""
         raise NotImplementedError()
 
-    def send(self, name, interface_msg, **kwargs):
-        """send a message to message queue name
+    def send(self, name, fields, **kwargs):
+        """send an interface message to the message queue
 
-        name -- string -- the queue name
-        interface_msg -- InterfaceMessage() -- an instance of InterfaceMessage, see self.create_message()
-        **kwargs -- dict -- anything else, this gets passed to self.connection()
+        :param name: str, the queue name
+        :param fields: dict, the fields to send to the queue name
+        :param **kwargs: anything else, this gets passed to self.connection()
+        :returns: InterfaceMessage instance, see self.create_imessage()
         """
-        if not interface_msg.fields:
-            raise ValueError("the interface_msg has no fields to send")
+        if not fields:
+            raise ValueError("No fields to send")
+
+        imessage = self.create_imessage(name=name, fields=fields)
 
         with self.connection(**kwargs) as connection:
-            self._send(name, interface_msg.body, connection=connection, **kwargs)
-            self.log("Message sent to {} -- {}", name, interface_msg.fields)
+            self._send(
+                name=imessage.name,
+                connection=connection,
+                body=imessage.to_interface(),
+                **kwargs
+            )
+            self.log(f"Message sent to {imessage.name} -- {imessage.fields}")
+
+        return imessage
 
     def _count(self, name, connection, **kwargs): raise NotImplementedError()
     def count(self, name, **kwargs):
@@ -273,7 +348,7 @@ class Interface(object):
         return -- InterfaceMessage() -- an instance containing fields and raw
         """
         with self.connection(**kwargs) as connection:
-            interface_msg = None
+            imessage = None
             body, raw = self._recv(
                 name,
                 connection=connection,
@@ -281,18 +356,25 @@ class Interface(object):
                 **kwargs
             )
             if body:
-                interface_msg = self.create_message(name, body=body, raw=raw)
+                imessage = self.create_imessage(name=name, body=body, raw=raw)
                 self.log(
                     "Message {} received from {} -- {}",
-                    interface_msg._id,
+                    imessage._id,
                     name,
-                    interface_msg.fields
+                    imessage.fields
                 )
 
-            return interface_msg
+            return imessage
 
-    def _release(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
-    def release(self, name, interface_msg, **kwargs):
+    def _ack(self, name, connection, imessage, **kwargs): raise NotImplementedError()
+    def ack(self, name, imessage, **kwargs):
+        """this will acknowledge that the interface message was received successfully"""
+        with self.connection(**kwargs) as connection:
+            self._ack(name, connection=connection, imessage=imessage)
+            self.log("Message {} acked from {}", imessage._id, name)
+
+    def _release(self, name, connection, imessage, **kwargs): raise NotImplementedError()
+    def release(self, name, imessage, **kwargs):
         """release the message back into the queue, this is usually for when processing
         the message has failed and so a new attempt to process the message should be made"""
         #interface_msg.raw.load()
@@ -300,7 +382,7 @@ class Interface(object):
             delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
 
             if delay_seconds == 0:
-                cnt = interface_msg._count
+                cnt = imessage._count
                 if cnt:
                     max_timeout = self.connection_config.options.get("max_timeout")
                     backoff = self.connection_config.options.get("backoff_multiplier")
@@ -309,24 +391,17 @@ class Interface(object):
                         (cnt * backoff) * cnt
                     )
 
-            self._release(name, interface_msg, connection=connection, delay_seconds=delay_seconds)
+            self._release(name, connection=connection, imessage=imessage, delay_seconds=delay_seconds)
             self.log(
                 "Message {} released back to {} count {}, with delay {}s",
-                interface_msg._id,
+                imessage._id,
                 name,
-                interface_msg._count,
+                imessage._count,
                 delay_seconds
             )
 
-    def _ack(self, name, interface_msg, connection, **kwargs): raise NotImplementedError()
-    def ack(self, name, interface_msg, **kwargs):
-        """this will acknowledge that the interface message was received successfully"""
-        with self.connection(**kwargs) as connection:
-            self._ack(name, interface_msg, connection=connection)
-            self.log("Message {} acked from {}", interface_msg._id, name)
-
     def _clear(self, name, connection, **kwargs): raise NotImplementedError()
-    def clear(self, name, **kwargs):
+    def unsafe_clear(self, name, **kwargs):
         """cliear the queue name"""
         with self.connection(**kwargs) as connection:
             self._clear(name, connection=connection)
@@ -361,12 +436,12 @@ class Interface(object):
             except UnicodeError as e:
                 logger.error("Unicode error while logging", exc_info=True)
 
-    def raise_error(self, e, exc_info=None):
+    def raise_error(self, e):
         """this is just a wrapper to make the passed in exception an InterfaceError"""
-        if not exc_info:
-            exc_info = sys.exc_info()
-        if not isinstance(e, InterfaceError):
-            e = InterfaceError(e, exc_info)
 
-        reraise(e.__class__, e, exc_info[2])
+        if isinstance(e, InterfaceError) or hasattr(builtins, e.__class__.__name__):
+            raise e
+
+        else:
+            raise InterfaceError(e) from e
 

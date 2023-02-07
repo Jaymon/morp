@@ -9,7 +9,6 @@ from datatypes import ReflectClass
 from datatypes import property as cachedproperty
 
 from .compat import *
-from . import reflection
 
 
 class Connection(object):
@@ -25,6 +24,9 @@ class Connection(object):
 
     hosts = None
     """list -- a list of (hostname, port) tuples"""
+
+    path = None
+    """str, the path (if applicable)"""
 
     interface_name = ""
     """string -- full Interface class name -- the interface that will connect to the messaging backend"""
@@ -54,8 +56,8 @@ class Connection(object):
                     key = f.read().strip()
 
         # Fernet key must be 32 url-safe base64-encoded bytes
-        key = base64.b64encode(ByteString(key).sha256()) if key else ""
-
+        bs = ByteString(ByteString(key).sha256())
+        key = base64.b64encode(bs[:32]) if key else ""
         return key
 
     def __init__(self, **kwargs):
@@ -80,6 +82,9 @@ class Connection(object):
                 setattr(self, key, val)
             else:
                 self.options[key] = val
+
+        self.options.setdefault('max_timeout', 3600) # 1 hour to process message
+        self.options.setdefault('backoff_multiplier', 5) # failure backoff multiplier
 
     def get_netlocs(self, default_port):
         return ["{}:{}".format(h[0], default_port if h[1] is None else h[1]) for h in self.hosts]
@@ -125,13 +130,17 @@ class DsnConnection(Connection):
         if "fragment" in p:
             d['name'] = p["fragment"]
 
+        if "path" in p:
+            d["path"] = p["path"]
+
         return d
 
     @classmethod
     def normalize_scheme(cls, v):
         ret = v
         d = {
-            "morp.interface.sqs.SQS": set(["sqs"]),
+            "morp.interface.sqs:SQS": set(["sqs"]),
+            "morp.interface.dropfile:Dropfile": set(["dropfile"]),
         }
 
         kv = v.lower()

@@ -8,7 +8,6 @@ import datetime
 from datatypes import ReflectClass, make_dict, classproperty
 
 from .compat import *
-from . import decorators
 from .interface import get_interface
 from .exception import ReleaseMessage, AckMessage
 
@@ -29,6 +28,7 @@ class Message(object):
     If you would like your subclass to use a different queue then just set .name
     property on the class and it qill use a different queue
     """
+
     connection_name = ""
     """the name of the connection to use to retrieve the interface"""
 
@@ -43,7 +43,7 @@ class Message(object):
         print(m.fields) # {"foo": 1, "bar": 2}
     """
 
-    interface_message = None
+    imessage = None
     """When a Message subclass instance is created on the receiving end it will
     be passed the raw interface message which will be set into this property. This
     is also set when the message instance is sent (see .send())
@@ -96,9 +96,8 @@ class Message(object):
             ))
 
         else:
-            self.interface_message = self.interface.create_message(name=name, fields=fields)
             logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
-            self.interface.send(name, self.interface_message, **kwargs)
+            self.imessage = self.interface.send(name=name, fields=fields, **kwargs)
 
     def send_later(self, delay_seconds, **kwargs):
         """Send the message after delay_seconds
@@ -200,7 +199,7 @@ class Message(object):
     def unsafe_clear(cls):
         """clear the whole message queue"""
         n = cls.get_name()
-        return cls.interface.clear(n)
+        return cls.interface.unsafe_clear(n)
 
     @classmethod
     def count(cls):
@@ -220,8 +219,8 @@ class Message(object):
         return ReflectClass.get_class(classpath)
 
     @classmethod
-    def hydrate(cls, interface_message):
-        fields = interface_message.fields
+    def hydrate(cls, imessage):
+        fields = imessage.fields
         message_class = cls
 
         if cls is Message:
@@ -230,7 +229,7 @@ class Message(object):
             message_class = cls.get_class(fields[cls.classpath_key])
 
         instance = message_class()
-        instance.interface_message = interface_message
+        instance.imessage = imessage
         instance.from_interface(fields)
 
         return instance

@@ -166,7 +166,7 @@ class SQS(Interface):
             if q:
                 self._close_client(q.meta.client)
 
-    def _send(self, name, body, connection, **kwargs):
+    def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as q:
             delay_seconds = kwargs.get('delay_seconds', 0)
             if delay_seconds > 900:
