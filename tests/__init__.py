@@ -1,48 +1,59 @@
 # -*- coding: utf-8 -*-
-import logging
+import os
+import inspect
+import subprocess
 
 import testdata
 from datatypes import NamingConvention
 
+from morp.compat import *
 from morp.interface.dropfile import Dropfile
 from morp.interface import find_environ
 from morp.message import Message
-
+from morp.config import DsnConnection
 
 
 testdata.basic_logging(
     levels={
         "boto3": "WARNING",
         "botocore": "WARNING",
+        "datatypes": "WARNING",
     }
 )
-# logger = logging.getLogger('boto3')
-# logger.setLevel(logging.WARNING)
-# logger = logging.getLogger('botocore')
-# logger.setLevel(logging.WARNING)
 
 
 class Client(object):
-    def __init__(self, contents):
-        module_info = testdata.create_module(contents=contents)
+    def __init__(self, data, config):
+        module_info = testdata.create_module(data=data)
         self.directory = module_info.basedir
-        self.module = module_info.module
+        self.module = module_info.module()
+        self.config = config
+        inter = self.config.interface
         self.message_classes = []
 
         clear_names = {}
         for _, message_class in inspect.getmembers(self.module, inspect.isclass):
             if issubclass(message_class, Message):
+                message_class.interface = inter
                 clear_names[message_class.get_name()] = message_class
                 self.message_classes.append(message_class)
 
         for message_class in clear_names.values():
-            message_class.clear()
+            message_class.unsafe_clear()
 
     def send(self, **fields):
         return self.message_classes[0].create(fields)
 
     def recv(self):
         return self.run(self.message_classes[0].name)
+
+    def environ(self):
+        environ = os.environ
+        environ.update({
+            "MORP_DSN": self.config.dsn,
+        })
+        environ.pop("MORP_DSN_1", None)
+        return environ
 
     def run(self, name, count=1, **options):
         python_cmd = String(subprocess.check_output(["which", "python"]).strip())
@@ -54,15 +65,8 @@ class Client(object):
         )
         expected_ret_code = options.get('code', 0)
 
-        is_py2 = True
-        is_py3 = False
-
         def get_output_str(output):
             return "\n".join(String(o) for o in output)
-#             if is_py2:
-#                 return "\n".join(output)
-#             elif is_py3:
-#                 return "\n".join((o.decode("utf-8") for o in output))
 
         process = None
         output = []
@@ -73,6 +77,7 @@ class Client(object):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=os.getcwd(),
+                env=self.environ(),
             )
 
             for line in iter(process.stdout.readline, b""):
@@ -105,14 +110,7 @@ class TestCase(testdata.TestCase):
 
     interfaces = []
 
-    #interfaces = defaultdict(list)
-
     DSN_ENV_NAME = "MORP_TEST_DSN"
-
-#     def setUp(self):
-#         i = self.get_interface()
-#         n = self.get_name()
-#         i.clear(n)
 
     @classmethod
     def tearDownClass(cls):
@@ -125,11 +123,11 @@ class TestCase(testdata.TestCase):
             for inter in cls.interfaces:
                 inter.close()
 
-#         for name, interfaces in cls.interfaces.items():
-#             for inter in interfaces:
-#                 if name:
-#                     inter.unsafe_delete(name)
-#                 inter.close()
+    def get_client(self, data, **kwargs):
+        return Client(
+            data,
+            config=kwargs.get("config", self.get_config()),
+        )
 
     def get_config(self, dsn="", config=None, **options):
         if dsn:
@@ -143,6 +141,9 @@ class TestCase(testdata.TestCase):
                         break
 
         if config:
+            options.setdefault("backoff_multiplier", 1)
+            options.setdefault("backoff_amplifier", 1)
+
             for k, v in options.items():
                 config.options[k] = v
 
@@ -161,31 +162,9 @@ class TestCase(testdata.TestCase):
         self.assertTrue(inter.connected)
         return inter
 
-#         if config:
-#             inter = self.interface_class(config)
-# 
-#         else:
-#             for config in find_environ("MORP_TEST_DSN"):
-#                 if issubclass(self.interface_class, config.interface_class):
-#                     inter = self.interface_class(config)
-# 
-#         if inter:
-#             inter.connect()
-#             type(self).interfaces[""].append(inter)
-#             self.assertTrue(inter.connected)
-# 
-#         else:
-#             raise ValueError(f"Could not find a MORP_TEST_DSN for {self.interface_class}")
-# 
-#         return inter
-
     def get_encrypted_interface(self, config=None, interface=None, **options):
         """get a connected interface"""
-        if testdata.yes():
-            options['key'] = testdata.create_file(testdata.get_ascii(100), ext="key")
-        else:
-            options['key'] = testdata.get_ascii(testdata.get_int(10, 200))
-
+        options.setdefault('key', testdata.get_ascii(testdata.get_int(10, 200)))
         return self.get_interface(config=config, interface=interface, **options)
 
     def get_name(self, name=""):
@@ -207,11 +186,15 @@ class TestCase(testdata.TestCase):
         return orm_class
 
     def get_message(self, name=None, interface=None, config=None, **fields):
+        fields = self.get_fields(**fields)
+
+        return self.get_message_class(name=name, interface=interface, config=config)(**fields)
+
+    def get_fields(self, **fields):
         if not fields:
             fields.update({
                 "foo": testdata.get_int(),
                 "bar": testdata.get_words(),
             })
-
-        return self.get_message_class(name=name, interface=interface, config=config)(**fields)
+        return fields
 

@@ -14,25 +14,25 @@ from .compat import *
 class Connection(object):
     """The base connection class, you will most likely always use DsnConnection"""
     name = ""
-    """string -- the name of this connection, handy when you have more than one used interface (eg, nsq)"""
+    """str, the name of this connection, handy when you have more than one used interface (eg, nsq)"""
 
     username = ""
-    """the username (if needed)"""
+    """str, the username (if needed)"""
 
     password = ""
-    """the password (if needed)"""
+    """str, the password (if needed)"""
 
     hosts = None
-    """list -- a list of (hostname, port) tuples"""
+    """list, a list of (hostname, port) tuples"""
 
     path = None
     """str, the path (if applicable)"""
 
     interface_name = ""
-    """string -- full Interface class name -- the interface that will connect to the messaging backend"""
+    """str, full Interface class name -- the interface that will connect to the messaging backend"""
 
     options = None
-    """dict -- any other interface specific options you need"""
+    """dict, any other interface specific options you need"""
 
     @property
     def interface_class(self):
@@ -44,35 +44,37 @@ class Connection(object):
         interface_class = self.interface_class
         return interface_class(self)
 
+    @property
+    def serializer(self):
+        serializer = self.options.get("serializer", "pickle")
+        if serializer not in set(["pickle", "json"]):
+            raise ValueError(f"Unknown serializer {serializer}")
+        return serializer
+
     @cachedproperty(cached="_key")
     def key(self):
         """string -- an encryption key loaded from options['key'],
         it must be 32 bytes long so this makes sure it is"""
         key = self.options.get('key', "")
         if key:
-            # !!! deprecated 2019-11-16, key shouldn't be a file anymore
-            if os.path.isfile(key):
-                with open(key, 'r') as f:
-                    key = f.read().strip()
-
-        # Fernet key must be 32 url-safe base64-encoded bytes
-        bs = ByteString(ByteString(key).sha256())
-        key = base64.b64encode(bs[:32]) if key else ""
+            # Fernet key must be 32 url-safe base64-encoded bytes
+            bs = ByteString(ByteString(key).sha256())
+            key = base64.b64encode(bs[:32])
         return key
 
     def __init__(self, **kwargs):
         """
         set all the values by passing them into this constructor, any unrecognized kwargs get put into .options
 
-        example --
-        c = Connection(
-            interface_name="...",
-            hosts=[("host", port), ("host2", port2)],
-            some_random_thing="foo"
-        )
+        :Example:
+            c = Connection(
+                interface_name="...",
+                hosts=[("host", port), ("host2", port2)],
+                some_random_thing="foo"
+            )
 
-        print c.port # 5000
-        print c.options # {"some_random_thing": "foo"}
+            print c.port # 5000
+            print c.options # {"some_random_thing": "foo"}
         """
         self.options = kwargs.pop('options', {})
         self.hosts = []
@@ -104,6 +106,7 @@ class DsnConnection(Connection):
         morp.interface.sqs.SQS://AWS_ID:AWS_KEY@
     """
     def __init__(self, dsn):
+        self.dsn = dsn
         d = self.parse(dsn)
         super().__init__(**d)
 

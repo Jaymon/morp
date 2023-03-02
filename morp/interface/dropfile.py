@@ -12,18 +12,13 @@ from datatypes import (
 )
 
 from ..compat import *
-from . import Interface, InterfaceMessage
+from .base import Interface, InterfaceMessage
 
 
 class DropfileMessage(InterfaceMessage):
-    """Thin wrapper around the InterfaceMessage to account for SQS keeping internal
-    count and created values"""
     @property
     def _id(self):
         return self._fileroot
-
-#     def depart(self):
-#         return self.fields
 
     def from_interface(self, body):
         super().from_interface(body)
@@ -35,22 +30,6 @@ class DropfileMessage(InterfaceMessage):
             self._count = 1
             if len(parts) > 1:
                 self._count = int(parts[1])
-
-
-#     def populate(self, fields):
-#         if not fields: fields = {}
-#         self.fields = fields.get("fields", fields)
-#         self._count = 0
-#         self._created = None
-#         self._fileroot = None
-# 
-#         if self.raw:
-#             parts = self.raw.fileroot.split("-")
-#             self._fileroot = parts[0]
-#             self._created = Datetime(self._fileroot)
-#             self._count = 1
-#             if len(parts) > 1:
-#                 self._count = int(parts[1])
 
 
 class Dropfile(Interface):
@@ -79,7 +58,7 @@ class Dropfile(Interface):
             dt = Datetime()
 
             if delay_seconds := kwargs.get('delay_seconds', 0):
-                dt + datetime.timedelta(seconds=delay_seconds)
+                dt = dt + datetime.timedelta(seconds=delay_seconds)
 
             message = queue.child_file(f"{dt.timestamp()}-1.txt")
             message.write_text(body)
@@ -142,7 +121,8 @@ class Dropfile(Interface):
             then = now + datetime.timedelta(seconds=delay_seconds)
 
             # let's move the file to the future and then delete the old message
-            dest = Filepath(message.dirname, f"{then.timestamp()}-{imessage._count}.txt")
+            count = imessage._count + 1
+            dest = Filepath(message.dirname, f"{then.timestamp()}-{count}.txt")
             dest.write_text(imessage.body)
             self._cleanup(fp, message)
 

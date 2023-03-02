@@ -46,7 +46,7 @@ class Message(object):
     imessage = None
     """When a Message subclass instance is created on the receiving end it will
     be passed the raw interface message which will be set into this property. This
-    is also set when the message instance is sent (see .send())
+    is also set when the message instance is sent (see .send() and .hydrate())
     """
 
     name = "morp-messages"
@@ -96,19 +96,27 @@ class Message(object):
             ))
 
         else:
-            logger.info("Sending message with {} keys to {}".format(fields.keys(), name))
+            logger.info("Sending message with '{}' keys to '{}'".format(
+                "', '".join(fields.keys()),
+                name
+            ))
             self.imessage = self.interface.send(name=name, fields=fields, **kwargs)
 
     def send_later(self, delay_seconds, **kwargs):
         """Send the message after delay_seconds
 
-        :param delay_seconds: int, up to 900 (15 minutes) per SQS docs
+        :param delay_seconds: int, up to 900 (15 minutes) per SQS docs (interface specific)
         """
         kwargs["delay_seconds"] = delay_seconds
         return self.send(**kwargs)
 
     @classmethod
     def get_name(cls):
+        """This is what's used as the official queue name, it takes cls.name
+        and combines it with MORP_PREFIX environment variable
+
+        :returns: str, the queue name
+        """
         name = cls.name
         env_name = os.environ.get('MORP_PREFIX', '')
         if env_name:
@@ -143,27 +151,27 @@ class Message(object):
         name = cls.get_name()
         ack_on_recv = kwargs.pop('ack_on_recv', False)
         logger.debug("Waiting to receive on {} for {} seconds".format(name, timeout))
-        interface_msg = i.recv(name, timeout=timeout, **kwargs)
-        if interface_msg:
+        imessage = i.recv(name, timeout=timeout, **kwargs)
+        if imessage:
             try:
-                yield cls.hydrate(interface_msg)
+                yield cls.hydrate(imessage)
 
             except ReleaseMessage as e:
-                i.release(name, interface_msg, delay_seconds=e.delay_seconds)
+                i.release(name, imessage, delay_seconds=e.delay_seconds)
 
             except AckMessage as e:
-                i.ack(name, interface_msg)
+                i.ack(name, imessage)
 
             except Exception as e:
                 if ack_on_recv:
-                    i.ack(name, interface_msg)
+                    i.ack(name, imessage)
                 else:
-                    i.release(name, interface_msg)
+                    i.release(name, imessage)
 
                 raise
 
             else:
-                i.ack(name, interface_msg)
+                i.ack(name, imessage)
 
         else:
             yield None
@@ -220,6 +228,12 @@ class Message(object):
 
     @classmethod
     def hydrate(cls, imessage):
+        """This is used by the interface to populate an instance with information
+        received from the interface
+
+        :param imessage: InterfaceMessage, the message freshly received from the
+            interface, see Interface.create_imessage()
+        """
         fields = imessage.fields
         message_class = cls
 
@@ -235,11 +249,21 @@ class Message(object):
         return instance
 
     def to_interface(self):
+        """When sending a message to the interface this method will be called
+
+        :returns: dict, the fields
+        """
         fields = self.fields
         fields.setdefault(self.classpath_key, ReflectClass.get_classpath(self))
         return fields
 
     def from_interface(self, fields):
+        """When receiving a messag from the interface this method will be called
+
+        you can see it in action with .hydrate()
+
+        :param fields: dict, the fields received from the interface
+        """
         for k, v in fields.items():
             self.fields[k] = v
 
@@ -249,19 +273,29 @@ class Message(object):
         raise NotImplementedError()
 
     def ack(self):
-        interface_msg = self.interface_message
-        # ??? - should this throw an exception if interface_msg is None?
-        if interface_msg:
+        """Acknowledge this message has been processed"""
+        imessage = self.imessage
+        # ??? - should this throw an exception if imessage is None?
+        if imessage:
             name = cls.get_name()
-            cls.interface.ack(name, interface_msg)
+            cls.interface.ack(name, imessage)
 
     def release(self, **kwargs):
-        interface_msg = self.interface_message
-        # ??? - should this throw an exception if interface_msg is None?
-        if interface_msg:
+        """Release this message back to the interface so another message instance
+        can pick it up
+        """
+        imessage = self.imessage
+        # ??? - should this throw an exception if imessage is None?
+        if imessage:
             name = cls.get_name()
-            cls.interface.release(name, interface_msg, **kwargs)
+            cls.interface.release(name, imessage, **kwargs)
 
     def release_later(self, delay_seconds):
+        """If you want to release the message and not have it be visible for some
+        amount of time
+
+        :param delay_seconds: int, how many seconds before the message can be
+            processed again. The max value is interface specific
+        """
         return self.release(delay_seconds=delay_seconds)
 

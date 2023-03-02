@@ -5,17 +5,6 @@ from .. import TestCase, Client, testdata
 
 
 class BaseTestInterface(TestCase):
-#     def get_imessage(self, name="", interface=None, **fields):
-#         name = self.get_name(name)
-#         inter = self.get_interface(interface=interface)
-# 
-#         if not fields:
-#             fields[testdata.get_ascii()] = testdata.get_int()
-#             fields[testdata.get_ascii()] = testdata.get_int()
-# 
-#         msg = inter.create_imessage(name, fields=fields)
-#         return msg
-
     def test_queue_auto_create(self):
         """queues should auto-create, this just makes sure that works as intended"""
         m = self.get_message()
@@ -87,4 +76,24 @@ class BaseTestInterface(TestCase):
         im = inter.recv(name)
         self.assertIsNone(im)
         self.assertEqual(1, inter.count(name))
+
+    def test_backoff(self):
+        m = self.get_message(
+            config=self.get_config(backoff_multiplier=1, backoff_amplifier=1),
+            foo=testdata.get_int()
+        )
+        mcls = m.__class__
+        m.send()
+
+        count = 0
+        for x in range(2):
+            with self.assertRaises(RuntimeError):
+                with mcls.recv() as m2:
+                    self.assertGreater(m2.imessage._count, count)
+                    count = m2.imessage._count
+                    raise RuntimeError()
+
+        with mcls.recv() as m2:
+            self.assertGreater(m2.imessage._count, count)
+            self.assertEqual(m2.foo, m.foo)
 

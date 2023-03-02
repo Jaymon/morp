@@ -9,7 +9,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from ..compat import *
-from . import Interface, InterfaceMessage
+from .base import Interface, InterfaceMessage
 
 
 class Region(String):
@@ -171,7 +171,7 @@ class SQS(Interface):
             delay_seconds = kwargs.get('delay_seconds', 0)
             if delay_seconds > 900:
                 # https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_SendMessage.html
-                self.log("delay_seconds({}) cannot be greater than 900", delay_seconds, level="warn")
+                self.log("delay_seconds({}) cannot be greater than 900", delay_seconds, level="warning")
                 delay_seconds = 900
 
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.send_message
