@@ -2,35 +2,16 @@
 from contextlib import contextmanager
 import fcntl
 import errno
-import datetime
 import time
 import uuid
 
 from datatypes import (
     Dirpath,
     Filepath,
-    Datetime,
 )
 
 from ..compat import *
-from .base import Interface, InterfaceMessage
-
-
-class DropfileMessage(InterfaceMessage):
-    @property
-    def _id(self):
-        return self._fileroot
-
-    def from_interface(self, body):
-        super().from_interface(body)
-
-        if self.raw:
-            parts = self.raw.fileroot.split("-")
-            self._fileroot = parts[0]
-            self._created = Datetime(self._fileroot)
-            self._count = 1
-            if len(parts) > 1:
-                self._count = int(parts[1])
+from .base import Interface
 
 
 class Dropfile(Interface):
@@ -38,8 +19,6 @@ class Dropfile(Interface):
     or passing messages from the frontend to the backend on the same machine
     """
     _connection = None
-
-    message_class = DropfileMessage
 
     @contextmanager
     def queue(self, name, connection, **kwargs):

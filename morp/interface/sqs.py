@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals, division, print_function, absolute_import
 from contextlib import contextmanager
-import datetime
 import re
 import itertools
 import base64
 
 import boto3
 from botocore.exceptions import ClientError
-from datatypes import Datetime
 
 from ..compat import *
-from .base import Interface, InterfaceMessage
+from .base import Interface
 
 
 class Region(String):
+    """Small wrapper that just makes sure the AWS region is valid"""
     def __new__(cls, region_name):
         if not region_name:
             session = boto3.Session()
@@ -22,36 +21,13 @@ class Region(String):
             if not region_name:
                 raise ValueError("No region name found")
 
-        return super(Region, cls).__new__(cls, region_name)
+        return super().__new__(cls, region_name)
 
     @classmethod
     def names(cls):
+        """Return all available regions for SQS"""
         session = boto3.Session()
         return session.get_available_regions("ec2")
-
-
-class SQSMessage(InterfaceMessage):
-    """Thin wrapper around the InterfaceMessage to account for SQS keeping internal
-    count and created values"""
-    @property
-    def _id(self):
-        return self.raw.message_id
-
-    def depart(self):
-        return self.fields
-
-    def populate(self, fields):
-        if not fields: fields = {}
-        self.fields = fields.get("fields", fields)
-        self._count = 0
-        self._created = None
-
-        # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.receive_messages
-        if self.raw:
-            self._count = int(self.raw.attributes.get('ApproximateReceiveCount', 1))
-            created_stamp = int(self.raw.attributes.get('SentTimestamp', 0.0)) / 1000.0
-            if created_stamp:
-                self._created = datetime.datetime.fromtimestamp(created_stamp) 
 
 
 class SQS(Interface):
@@ -65,13 +41,11 @@ class SQS(Interface):
     """
     _connection = None
 
-    message_class = SQSMessage
-
     def _connect(self, connection_config):
         self.connection_config.options['vtimeout_max'] = 43200 # 12 hours max (from Amazon)
-        self.connection_config.options['region'] = Region(self.connection_config.options.get('region', ''))
 
-        region = self.connection_config.options.get('region')
+        region = Region(self.connection_config.options.get('region', ''))
+        self.connection_config.options['region'] = region
 
         if arn := self.connection_config.options.get("arn", ""):
             sts = boto3.client(
@@ -176,11 +150,12 @@ class SQS(Interface):
 
             except ClientError as e:
                 if self._is_client_error_match(e, ["AWS.SimpleQueueService.NonExistentQueue"]):
-                    attrs = self.get_attrs(**kwargs)
-                    q = connection.create_queue(
-                        QueueName=name,
-                        Attributes=attrs 
-                    )
+                    if kwargs.get("create_queue", True):
+                        attrs = self.get_attrs(**kwargs)
+                        q = connection.create_queue(
+                            QueueName=name,
+                            Attributes=attrs 
+                        )
 
                     yield q
 
@@ -194,8 +169,14 @@ class SQS(Interface):
             if q:
                 self._close_client(q.meta.client)
 
-
     def fields_to_body(self, fields):
+        """This base64 encodes the fields because SQS expects a string, not bytes
+
+        https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs/queue/send_message.html
+
+        :param: dict, the fields to send to the backend
+        :returns: str, the body, base64 encoded
+        """
         body = super().fields_to_body(fields)
         return String(base64.b64encode(body))
 
@@ -227,31 +208,15 @@ class SQS(Interface):
                     raise
 
     def _delete(self, name, connection, **kwargs):
-        # !!! this doesn't work because it tries to create the queue
-        #with self.queue(name, connection) as q:
-        #    q.delete()
-
-        client = None
-        try:
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.get_queue_url
-            # https://stackoverflow.com/q/38581465/5006
-            client = connection.meta.client
-            queue_url = client.get_queue_url(QueueName=name)["QueueUrl"]
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs.html#SQS.Client.delete_queue
-            client.delete_queue(QueueUrl=queue_url)
-
-        except ClientError as e:
-            if not self._is_client_error_match(e, [
-                "AWS.SimpleQueueService.QueueDeletedRecently",
-                "AWS.SimpleQueueService.NonExistentQueue",
-            ]):
-                raise
-
-        finally:
-            if client:
-                self._close_client(client)
+        with self.queue(name, connection, create_queue=False) as q:
+            if q:
+                q.delete()
 
     def body_to_fields(self, body):
+        """Before sending body to parent's body_to_fields() it will base64 decode it
+
+        :param body: str, the body returned from the backend
+        """
         return super().body_to_fields(base64.b64decode(body))
 
     def recv_to_fields(self, _id, body, raw):
@@ -266,14 +231,13 @@ class SQS(Interface):
         return fields
 
     def _recv(self, name, connection, **kwargs):
-        # if timeout isn't set then this will return immediately with no values
         timeout = kwargs.get('timeout', None)
         if timeout is not None:
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-long-polling.html
             if timeout < 0 or timeout > 20:
                 raise ValueError('timeout must be between 1 and 20')
 
-        vtimeout = None # kwargs.get('vtimeout', None)
+        vtimeout = kwargs.get('vtimeout', None) # !!! I'm not sure this works
         with self.queue(name, connection) as q:
             _id = body = raw = None
             kwargs = {
@@ -284,7 +248,10 @@ class SQS(Interface):
             if timeout:
                 kwargs["WaitTimeSeconds"] = timeout
             if vtimeout:
-                kwargs["VisibilityTimeout"] = min(vtimeout, 43200)
+                kwargs["VisibilityTimeout"] = min(
+                    vtimeout,
+                    self.connection_config.options['vtimeout_max']
+                )
 
             msgs = q.receive_messages(**kwargs)
             if msgs:

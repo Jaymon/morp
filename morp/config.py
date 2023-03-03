@@ -157,7 +157,7 @@ class DsnConnection(Connection):
         return ret
 
 
-environ = Environ("MORP_")
+environ = Environ("MORP_") # Load any MORP_* environment variables
 
 environ.setdefault('DISABLED', False, type=bool)
 """If set to 1 then messages won't actually be sent"""

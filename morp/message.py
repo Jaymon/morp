@@ -29,7 +29,6 @@ class Message(object):
     If you would like your subclass to use a different queue then just set .name
     property on the class and it qill use a different queue
     """
-
     connection_name = ""
     """the name of the connection to use to retrieve the interface"""
 
@@ -42,12 +41,6 @@ class Message(object):
         m.foo = 1
         m.bar = 2
         print(m.fields) # {"foo": 1, "bar": 2}
-    """
-
-#     imessage = None
-    """When a Message subclass instance is created on the receiving end it will
-    be passed the raw interface message which will be set into this property. This
-    is also set when the message instance is sent (see .send() and .hydrate())
     """
 
     name = "morp-messages"
@@ -126,6 +119,22 @@ class Message(object):
     @classmethod
     @contextmanager
     def recv(cls, block=True, **kwargs):
+        """Try and receive a message, this is usually used as a context manager
+
+        Usually you'll want to use .handle(), since that will automatically call
+        the message's .target() method, but if you want to do something custom
+        with the message then you can use this method by itself
+
+        :Example:
+            with Message.recv() as m:
+                print(m.fields)
+
+        :param block: bool, if True this will block until it receives a message or
+            until timeout has passed
+        :param **kwargs:
+            * timeout: int, how long to wait before yielding None
+        :returns: generator<Message>
+        """
         if block:
             m = None
             kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
@@ -145,7 +154,15 @@ class Message(object):
     @contextmanager
     def recv_for(cls, timeout, **kwargs):
         """try and receive a message, return None if a message is not received
-        within timeout"""
+        within timeout
+
+        This is a semi-internal method, you'll notice both .recv() and .handle()
+        use this method. It attempts to get a message and will ack or release the
+        message depending on how .target() did
+
+        :param timeout: float|int, how many seconds before yielding None
+        :returns: generator<Message>
+        """
         i = cls.interface
         name = cls.get_name()
         ack_on_recv = kwargs.pop('ack_on_recv', False)
@@ -180,6 +197,9 @@ class Message(object):
         """wait for messages to come in and handle them by calling the incoming
         message's target() method
 
+        :Example:
+            Message.handle(10) # handle 10 messages by consuming them and calling .target()
+
         :param count: int, if you only want to handle N messages, pass in count
         :param **kwargs: any other params will get passed to underlying recv methods
         """
@@ -192,11 +212,10 @@ class Message(object):
 
     @classmethod
     def create(cls, fields=None, **fields_kwargs):
-        """
-        create an instance of cls with the passed in fields and send it off
+        """create an instance of cls with the passed in fields and send it off
 
-        fields -- dict -- field_name keys, with their respective values
-        **fields_kwargs -- dict -- if you would rather pass in fields as name=val
+        :param fields: dict, field_name keys, with their respective values
+        :param **fields_kwargs: dict, if you would rather pass in fields as name=val
         """
         instance = cls(fields, **fields_kwargs)
         instance.send()
