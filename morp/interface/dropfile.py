@@ -25,7 +25,7 @@ class Dropfile(Interface):
         yield connection.child_dir(name, touch=True)
 
     def _connect(self, connection_config):
-        self._connection = Dirpath(connection_config.path, touch=True)
+        self._connection = Dirpath(connection_config.path, "morp", "queue", touch=True)
 
     def get_connection(self):
         return self._connection
@@ -113,8 +113,8 @@ class Dropfile(Interface):
         if delay_seconds:
             now = time.time_ns() + (delay_seconds * 1000000000)
 
-            # let's move the file to the future and then delete the old message,
-            # sadly, because we've got a lock on the file we can't mv or copy it,
+            # let's copy the file body to the future and then delete the old message,
+            # sadly, because we've got a lock on the file we can't move or copy it,
             # so we're just going to create a new file
             count = fields["_count"] + 1
             dest = Filepath(message.dirname, f"{now}-{_id}-{count}.txt")
