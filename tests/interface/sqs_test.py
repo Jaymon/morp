@@ -1,25 +1,10 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
-import logging
-import sys
-import time
-import os
-from unittest import TestCase
-import inspect
-import subprocess
-from collections import defaultdict
 
-import testdata
-
-#import morp
-#from morp.compat import *
-#from morp import Message, Connection, DsnConnection
+from morp.compat import *
 from morp.interface.sqs import SQS
-#from morp.interface import get_interfaces
-#from morp.exception import ReleaseMessage, AckMessage
+from . import _InterfaceTest
 
-
-class SQSInterfaceTest(BaseTestInterface):
+class InterfaceTest(_InterfaceTest):
     interface_class = SQS
 
     def test_send_recv_aws_encryption(self):

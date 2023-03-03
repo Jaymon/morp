@@ -4,9 +4,11 @@ from contextlib import contextmanager
 import datetime
 import re
 import itertools
+import base64
 
 import boto3
 from botocore.exceptions import ClientError
+from datatypes import Datetime
 
 from ..compat import *
 from .base import Interface, InterfaceMessage
@@ -70,14 +72,40 @@ class SQS(Interface):
         self.connection_config.options['region'] = Region(self.connection_config.options.get('region', ''))
 
         region = self.connection_config.options.get('region')
+
+        if arn := self.connection_config.options.get("arn", ""):
+            sts = boto3.client(
+                "sts",
+                aws_access_key_id=connection_config.username,
+                aws_secret_access_key=connection_config.password
+            )
+
+            role_info = sts.assume_role(
+                RoleArn=arn,
+                RoleSessionName="morp",
+            )
+            credentials = role_info["Credentials"]
+
+            self._connection = boto3.resource(
+                "sqs",
+                region_name=region,
+                aws_access_key_id=credentials["AccessKeyId"],
+                aws_secret_access_key=credentials["SecretAccessKey"],
+                aws_session_token=credentials["SessionToken"]
+            )
+
+            # we no longer need the sts client so clean it up
+            self._close_client(sts)
+
+        else:
+            self._connection = boto3.resource(
+                'sqs',
+                region_name=region,
+                aws_access_key_id=connection_config.username,
+                aws_secret_access_key=connection_config.password
+            )
+
         self.log("SQS connected to region {}", region)
-        self._connection = boto3.resource(
-        #self._connection = boto3.client(
-            'sqs',
-            region_name=region,
-            aws_access_key_id=connection_config.username,
-            aws_secret_access_key=connection_config.password
-        )
 
     def get_connection(self):
         return self._connection
@@ -166,6 +194,11 @@ class SQS(Interface):
             if q:
                 self._close_client(q.meta.client)
 
+
+    def fields_to_body(self, fields):
+        body = super().fields_to_body(fields)
+        return String(base64.b64encode(body))
+
     def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as q:
             delay_seconds = kwargs.get('delay_seconds', 0)
@@ -175,7 +208,8 @@ class SQS(Interface):
                 delay_seconds = 900
 
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.send_message
-            q.send_message(MessageBody=body, DelaySeconds=delay_seconds)
+            receipt = q.send_message(MessageBody=body, DelaySeconds=delay_seconds)
+            return receipt["MessageId"], receipt
 
     def _count(self, name, connection, **kwargs):
         ret = 0
@@ -217,6 +251,20 @@ class SQS(Interface):
             if client:
                 self._close_client(client)
 
+    def body_to_fields(self, body):
+        return super().body_to_fields(base64.b64decode(body))
+
+    def recv_to_fields(self, _id, body, raw):
+        fields = super().recv_to_fields(_id, body, raw)
+
+        # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.receive_messages
+        fields["_count"] = int(raw.attributes.get('ApproximateReceiveCount', 1))
+        created_stamp = int(raw.attributes.get('SentTimestamp', 0.0)) / 1000.0
+        if created_stamp:
+            fields["_created"] = Datetime(created_stamp) 
+
+        return fields
+
     def _recv(self, name, connection, **kwargs):
         # if timeout isn't set then this will return immediately with no values
         timeout = kwargs.get('timeout', None)
@@ -227,9 +275,7 @@ class SQS(Interface):
 
         vtimeout = None # kwargs.get('vtimeout', None)
         with self.queue(name, connection) as q:
-            body = ''
-            raw = None
-
+            _id = body = raw = None
             kwargs = {
                 "MaxNumberOfMessages": 1,
                 "AttributeNames": ["ApproximateReceiveCount", "SentTimestamp"],
@@ -244,11 +290,11 @@ class SQS(Interface):
             if msgs:
                 raw = msgs[0]
                 body = raw.body
+                _id = raw.message_id
 
+            return _id, body, raw
 
-            return body, raw
-
-    def _release(self, name, interface_msg, connection, **kwargs):
+    def _release(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
             # http://stackoverflow.com/questions/14404007/release-a-message-back-to-sqs
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/AboutVT.html
@@ -259,17 +305,17 @@ class SQS(Interface):
             # its visibility timeout is the original value set for the queue.
             delay_seconds = kwargs.get('delay_seconds', 0)
             q.change_message_visibility_batch(Entries=[{
-                "Id": interface_msg.raw.message_id,
-                "ReceiptHandle": interface_msg.raw.receipt_handle,
+                "Id": fields["_id"],
+                "ReceiptHandle": fields["_raw"].receipt_handle,
                 "VisibilityTimeout": delay_seconds
             }])
 
-    def _ack(self, name, interface_msg, connection, **kwargs):
+    def _ack(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
             q.delete_messages(Entries=[
                 {
-                    'Id': interface_msg.raw.message_id,
-                    'ReceiptHandle': interface_msg.raw.receipt_handle,
+                    'Id': fields["_id"],
+                    'ReceiptHandle': fields["_raw"].receipt_handle,
                 }
             ])
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Message.delete

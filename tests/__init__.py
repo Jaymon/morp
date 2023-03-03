@@ -187,8 +187,17 @@ class TestCase(testdata.TestCase):
 
     def get_message(self, name=None, interface=None, config=None, **fields):
         fields = self.get_fields(**fields)
-
         return self.get_message_class(name=name, interface=interface, config=config)(**fields)
+
+    def get_imessage(self, name=None, interface=None, **fields):
+        name = name or self.get_name()
+        interface = interface or self.get_interface()
+        fields = fields or self.get_fields()
+        return interface.message_class(
+            name=name,
+            interface=interface,
+            fields=fields,
+        )
 
     def get_fields(self, **fields):
         if not fields:

@@ -2,9 +2,9 @@
 
 from morp.interface.dropfile import Dropfile
 
-from . import BaseTestInterface, testdata
+from . import _InterfaceTest
 
 
-class InterfaceTest(BaseTestInterface):
+class InterfaceTest(_InterfaceTest):
     interface_class = Dropfile
 

@@ -127,3 +127,23 @@ class MessageTest(TestCase):
         with mcls.recv_for(timeout=0.1) as m2:
             self.assertEqual(None, m2)
 
+    def test_backoff(self):
+        m = self.get_message(
+            config=self.get_config(backoff_multiplier=1, backoff_amplifier=1),
+            foo=testdata.get_int()
+        )
+        mcls = m.__class__
+        m.send()
+
+        count = 0
+        for x in range(2):
+            with self.assertRaises(RuntimeError):
+                with mcls.recv() as m2:
+                    self.assertGreater(m2.fields["_count"], count)
+                    count = m2.fields["_count"]
+                    raise RuntimeError()
+
+        with mcls.recv() as m2:
+            self.assertGreater(m2.fields["_count"], count)
+            self.assertEqual(m2.foo, m.foo)
+

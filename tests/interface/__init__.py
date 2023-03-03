@@ -4,7 +4,7 @@ from collections import defaultdict
 from .. import TestCase, Client, testdata
 
 
-class BaseTestInterface(TestCase):
+class _InterfaceTest(TestCase):
     def test_queue_auto_create(self):
         """queues should auto-create, this just makes sure that works as intended"""
         m = self.get_message()
@@ -13,24 +13,23 @@ class BaseTestInterface(TestCase):
 
         inter.unsafe_delete(name)
 
-    def test_message_lifecycle(self):
+    def test_fields_body_lifecycle(self):
+        name = self.get_name()
         inter = self.get_encrypted_interface()
-        fields = {"foo": 1, "bar": 2}
-        im = inter.create_imessage(name="message-lifecycle", fields=fields)
-        body = im.to_interface()
+        fields1 = self.get_fields()
 
-        im2 = inter.create_imessage(name="message-lifecycle", body=body)
-        self.assertEqual(im.fields, im2.fields)
-        self.assertEqual(im.fields, fields)
+        body = inter.fields_to_body(fields1)
+        fields2 = inter.body_to_fields(body)
+        self.assertEqual(fields1, fields2)
 
-    def test_message_encode_decode(self):
-        fields = {"foo": testdata.get_words(), "bar": testdata.get_int()}
+    def test_fields_body_encrypted_lifecycle(self):
+        name = self.get_name()
         inter = self.get_encrypted_interface()
+        fields1 = self.get_fields()
 
-        im = inter.create_imessage(name="message-lifecycle", fields=fields)
-        cipher_text = im.to_interface()
-        im2 = inter.create_imessage(name="message-lifecycle", body=cipher_text)
-        self.assertEqual(fields, im2.fields)
+        body = inter.fields_to_body(fields1)
+        fields2 = inter.body_to_fields(body)
+        self.assertEqual(fields1, fields2)
 
     def test_send_count_recv(self):
         msg = self.get_message()
@@ -41,26 +40,32 @@ class BaseTestInterface(TestCase):
 
         self.assertEqual(1, inter.count(name))
 
-        # re-connect to receive the message
-        imsg2 = inter.recv(name)
-        self.assertEqual(msg.fields, imsg2.fields)
+        fields = inter.recv(name)
+        self.assertEqual(
+            {k:v for k, v in msg.fields.items() if not k.startswith("_")},
+            {k:v for k, v in fields.items() if not k.startswith("_")}
+        )
 
-        inter.ack(name, imsg2)
+        inter.ack(name, fields)
         self.assertEventuallyEqual(0, lambda: inter.count(name))
 
     def test_recv_timeout(self):
         m = self.get_message()
         with self.assertWithin(1.5):
-            m.interface.recv(m.get_name(), timeout=1)
+            m.interface.recv(m.get_name(), timeout=1) # 1s as an int is minimum for SQS
 
     def test_send_recv_encrypted(self):
         m1 = self.get_message(interface=self.get_encrypted_interface())
         name = m1.get_name()
-        m1.send()
+        m1.interface.send(name, m1.fields)
 
-        im2 = m1.interface.recv(name)
-        self.assertEqual(m1.fields, im2.fields)
-        m1.interface.ack(name, im2)
+        fields = m1.interface.recv(name)
+        self.assertEqual(
+            {k:v for k, v in m1.fields.items() if not k.startswith("_")},
+            {k:v for k, v in fields.items() if not k.startswith("_")}
+        )
+
+        m1.interface.ack(name, fields)
 
     def test_release(self):
         m = self.get_message()
@@ -68,32 +73,12 @@ class BaseTestInterface(TestCase):
         inter = m.interface
         inter.send(name, m.fields)
 
-        im = inter.recv(name)
-        self.assertEqual(1, im._count)
-        inter.release(name, im)
-        self.assertEqual(1, inter.count(name))
+        fields = inter.recv(name)
+        self.assertEqual(1, fields["_count"])
+        inter.release(name, fields)
+        #self.assertEqual(1, inter.count(name))
 
-        im = inter.recv(name)
-        self.assertIsNone(im)
-        self.assertEqual(1, inter.count(name))
-
-    def test_backoff(self):
-        m = self.get_message(
-            config=self.get_config(backoff_multiplier=1, backoff_amplifier=1),
-            foo=testdata.get_int()
-        )
-        mcls = m.__class__
-        m.send()
-
-        count = 0
-        for x in range(2):
-            with self.assertRaises(RuntimeError):
-                with mcls.recv() as m2:
-                    self.assertGreater(m2.imessage._count, count)
-                    count = m2.imessage._count
-                    raise RuntimeError()
-
-        with mcls.recv() as m2:
-            self.assertGreater(m2.imessage._count, count)
-            self.assertEqual(m2.foo, m.foo)
+        fields = inter.recv(name)
+        self.assertFalse(fields)
+        self.assertEventuallyEqual(1, lambda: inter.count(name))
 

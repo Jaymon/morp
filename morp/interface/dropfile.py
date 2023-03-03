@@ -61,7 +61,7 @@ class Dropfile(Interface):
                 dt = dt + datetime.timedelta(seconds=delay_seconds)
 
             message = queue.child_file(f"{dt.timestamp()}-1.txt")
-            message.write_text(body)
+            message.write_bytes(body)
 
     def _count(self, name, connection, **kwargs):
         with self.queue(name, connection) as queue:
@@ -79,7 +79,7 @@ class Dropfile(Interface):
                 for message in queue.files().sort():
                     then = Datetime(message.fileroot.split("-")[0])
                     if now > then:
-                        fp = message.open_text("r+")
+                        fp = message.open("rb+")
                         try:
                             fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
@@ -123,7 +123,7 @@ class Dropfile(Interface):
             # let's move the file to the future and then delete the old message
             count = imessage._count + 1
             dest = Filepath(message.dirname, f"{then.timestamp()}-{count}.txt")
-            dest.write_text(imessage.body)
+            dest.write_bytes(imessage.body)
             self._cleanup(fp, message)
 
         else:

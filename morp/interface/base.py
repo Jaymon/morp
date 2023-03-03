@@ -7,7 +7,7 @@ import base64
 import datetime
 import json
 
-from datatypes import LogMixin
+from datatypes import LogMixin, Datetime
 from cryptography.fernet import Fernet
 import dsnparse
 
@@ -57,9 +57,7 @@ class InterfaceMessage(object):
         :param body: str, the body returned from the interface
         """
         self.body = body
-        fields = self._decode(body)
-        for k, v in fields.items():
-            self.fields[k] = v
+        self.fields.update(self._decode(body))
 
     def _encode(self, fields):
         """prepare a message to be sent over the backend
@@ -67,23 +65,24 @@ class InterfaceMessage(object):
         This base64 encodes the non-encrypted pickled body just for encoding simplicity
 
         :param fields: dict, the fields to be converted to a string
-        :eturns: str, the message all ready to be sent
+        :returns: str, the message all ready to be sent
         """
         serializer = self.interface.connection_config.serializer
         if serializer == "pickle":
             ret = pickle.dumps(fields, pickle.HIGHEST_PROTOCOL)
+
         elif serializer == "json":
-            ret = json.dumps(fields)
+            ret = ByteString(json.dumps(fields))
 
         key = self.interface.connection_config.key
         if key:
             logger.debug("Encrypting fields")
             f = Fernet(key)
-            ret = String(f.encrypt(ByteString(ret)))
+            ret = f.encrypt(ret)
 
-        else:
-            if serializer == "pickle":
-                ret = String(base64.b64encode(ret))
+#         else:
+#             if serializer == "pickle":
+#                 ret = String(base64.b64encode(ret))
 
         return ret
 
@@ -104,15 +103,45 @@ class InterfaceMessage(object):
 
         serializer = self.interface.connection_config.serializer
         if serializer == "pickle":
-            ret = base64.b64decode(ret)
+            #ret = base64.b64decode(ret)
             ret = pickle.loads(ret)
+
         elif serializer == "json":
             ret = json.loads(ret)
 
         return ret
 
 
-class Interface(LogMixin):
+
+class InterfaceABC(LogMixin):
+    def _connect(self, connection_config): raise NotImplementedError()
+
+    def get_connection(self): raise NotImplementedError()
+
+    def _close(self): raise NotImplementedError()
+
+    def _send(self, name, connection, body, **kwargs):
+        """similar to self.send() but this takes a body, which is the message
+        completely encoded and ready to be sent by the backend, instead of an
+        interface_msg() instance"""
+        raise NotImplementedError()
+
+    def _count(self, name, connection, **kwargs): raise NotImplementedError()
+
+    def _recv(self, name, connection, **kwargs):
+        """return -- tuple -- (body, raw) where body is the string of the
+            message that needs to be decrypted, and raw is the backend message
+            object instance, this is returned because things like .ack() might need
+            it to get an id or something"""
+        raise NotImplementedError()
+
+    def _ack(self, name, connection, fields, **kwargs): raise NotImplementedError()
+    def _release(self, name, connection, fields, **kwargs): raise NotImplementedError()
+    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
+    def _delete(self, name, connection, **kwargs): raise NotImplementedError()
+
+
+class Interface(InterfaceABC):
     """base class for interfaces to messaging"""
 
     connected = False
@@ -144,7 +173,6 @@ class Interface(LogMixin):
 
         return imessage
 
-    def _connect(self, connection_config): raise NotImplementedError()
     def connect(self, connection_config=None):
         """connect to the interface
 
@@ -165,9 +193,6 @@ class Interface(LogMixin):
 
         return self.connected
 
-    def get_connection(self): raise NotImplementedError()
-
-    def _close(self): raise NotImplementedError()
     def close(self):
         """
         close an open connection
@@ -196,11 +221,41 @@ class Interface(LogMixin):
         except Exception as e:
             self.raise_error(e)
 
-    def _send(self, name, connection, body, **kwargs):
-        """similar to self.send() but this takes a body, which is the message
-        completely encoded and ready to be sent by the backend, instead of an
-        interface_msg() instance"""
-        raise NotImplementedError()
+    def fields_to_body(self, fields):
+        """This will prepare the fields passed from Message to Interface.send
+
+
+        prepare a message to be sent over the backend
+
+        This base64 encodes the non-encrypted pickled body just for encoding simplicity
+
+        :param fields: dict, the fields to be converted to a string
+        :returns: str, the message all ready to be sent
+        :returns: str, the fully encoded fields
+        """
+        serializer = self.connection_config.serializer
+        if serializer == "pickle":
+            ret = pickle.dumps(fields, pickle.HIGHEST_PROTOCOL)
+
+        elif serializer == "json":
+            ret = ByteString(json.dumps(fields))
+
+        key = self.connection_config.key
+        if key:
+            logger.debug("Encrypting fields")
+            f = Fernet(key)
+            ret = f.encrypt(ret)
+
+#         else:
+#             if serializer == "pickle":
+#                 ret = String(base64.b64encode(ret))
+
+        return ret
+
+    def send_to_fields(self, _id, fields, raw):
+        fields["_id"] = _id
+        fields["_send_raw"] = raw
+        return fields
 
     def send(self, name, fields, **kwargs):
         """send an interface message to the message queue
@@ -213,36 +268,62 @@ class Interface(LogMixin):
         if not fields:
             raise ValueError("No fields to send")
 
-        imessage = self.create_imessage(name=name, fields=fields)
+        #imessage = self.create_imessage(name=name, fields=fields)
 
         with self.connection(**kwargs) as connection:
-            self._send(
-                name=imessage.name,
+            _id, raw = self._send(
+                name=name,
                 connection=connection,
-                body=imessage.to_interface(),
+                body=self.fields_to_body(fields),
                 **kwargs
             )
-            self.log(
-                "Message sent to {} -- {}", 
-                imessage.name,
-                imessage.fields,
-            )
+            self.log(f"Message {_id} sent to {name} -- {fields}")
+            return self.send_to_fields(_id, fields, raw)
 
-        return imessage
+        #return imessage
 
-    def _count(self, name, connection, **kwargs): raise NotImplementedError()
     def count(self, name, **kwargs):
         """count how many messages are in queue name"""
         with self.connection(**kwargs) as connection:
             ret = int(self._count(name, connection=connection))
             return ret
 
-    def _recv(self, name, connection, **kwargs):
-        """return -- tuple -- (body, raw) where body is the string of the
-            message that needs to be decrypted, and raw is the backend message
-            object instance, this is returned because things like .ack() might need
-            it to get an id or something"""
-        raise NotImplementedError()
+    def body_to_fields(self, body):
+        """This will prepare the body returned from Interface.recv to be passed
+        to Message
+
+        his turns a message body back to the original fields
+
+        :param body: str, the body returned from the interface
+        :param body: str, the body to be converted to a dict
+        :returns: dict, the fields of the original message
+        """
+        key = self.connection_config.key
+        if key:
+            logger.debug("Decoding encrypted body")
+            f = Fernet(key)
+            ret = f.decrypt(ByteString(body))
+
+        else:
+            ret = body
+
+        serializer = self.connection_config.serializer
+        if serializer == "pickle":
+            #ret = base64.b64decode(ret)
+            ret = pickle.loads(ret)
+
+        elif serializer == "json":
+            ret = json.loads(ret)
+
+        return ret
+
+    def recv_to_fields(self, _id, body, raw):
+        fields = self.body_to_fields(body)
+        fields["_id"] = _id
+        fields["_raw"] = raw
+        fields["_count"] = 0
+        fields["_created"] = Datetime()
+        return fields
 
     def recv(self, name, timeout=None, **kwargs):
         """receive a message from queue name
@@ -251,41 +332,56 @@ class Interface(LogMixin):
         return -- InterfaceMessage() -- an instance containing fields and raw
         """
         with self.connection(**kwargs) as connection:
-            imessage = None
-            body, raw = self._recv(
+#             fields = {}
+#             imessage = None
+            _id, body, raw = self._recv(
                 name,
                 connection=connection,
                 timeout=timeout,
                 **kwargs
             )
-            if body:
-                imessage = self.create_imessage(name=name, body=body, raw=raw)
-                self.log(
-                    "Message {} received from {} -- {}",
-                    imessage._id,
-                    name,
-                    imessage.fields
-                )
+            return self.recv_to_fields(_id, body, raw) if body else {}
 
-            return imessage
 
-    def _ack(self, name, connection, imessage, **kwargs): raise NotImplementedError()
-    def ack(self, name, imessage, **kwargs):
+#             if body:
+#                 fields = self.from_interface(body)
+# #                 self.log(
+# #                     f"Message received from {name} -- {fields}",
+# #                     imessage._id,
+# #                     name,
+# #                     imessage.fields
+# #                 )
+# 
+#                 pout.v(raw.message_id)
+#                 fields["_raw"] = raw
+# 
+#             return fields
+
+#                 imessage = self.create_imessage(name=name, body=body, raw=raw)
+#                 self.log(
+#                     "Message {} received from {} -- {}",
+#                     imessage._id,
+#                     name,
+#                     imessage.fields
+#                 )
+# 
+#             return imessage
+
+    def ack(self, name, fields, **kwargs):
         """this will acknowledge that the interface message was received successfully"""
         with self.connection(**kwargs) as connection:
-            self._ack(name, connection=connection, imessage=imessage)
-            self.log("Message {} acked from {}", imessage._id, name)
+            self._ack(name, connection=connection, fields=fields)
+            self.log("Message {} acked from {}", fields["_id"], name)
 
-    def _release(self, name, connection, imessage, **kwargs): raise NotImplementedError()
-    def release(self, name, imessage, **kwargs):
+    def release(self, name, fields, **kwargs):
         """release the message back into the queue, this is usually for when processing
         the message has failed and so a new attempt to process the message should be made"""
         #interface_msg.raw.load()
         with self.connection(**kwargs) as connection:
             delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
+            count = fields.get("_count", 0)
 
             if delay_seconds == 0:
-                count = imessage._count
                 if count:
                     max_timeout = self.connection_config.options.get("max_timeout")
                     backoff = self.connection_config.options.get("backoff_multiplier")
@@ -295,23 +391,21 @@ class Interface(LogMixin):
                         (count * backoff) * amplifier
                     )
 
-            self._release(name, connection=connection, imessage=imessage, delay_seconds=delay_seconds)
+            self._release(name, connection=connection, fields=fields, delay_seconds=delay_seconds)
             self.log(
                 "Message {} released back to {} count {}, with delay {}s",
-                imessage._id,
+                fields["_id"],
                 name,
-                imessage._count,
+                count,
                 delay_seconds
             )
 
-    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
     def unsafe_clear(self, name, **kwargs):
         """cliear the queue name"""
         with self.connection(**kwargs) as connection:
             self._clear(name, connection=connection)
             self.log("Messages cleared from {}", name)
 
-    def _delete(self, name, connection, **kwargs): raise NotImplementedError()
     def unsafe_delete(self, name, **kwargs):
         with self.connection(**kwargs) as connection:
             self._delete(name, connection=connection)
