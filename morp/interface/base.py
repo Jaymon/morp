@@ -321,8 +321,7 @@ class Interface(InterfaceABC):
         fields = self.body_to_fields(body)
         fields["_id"] = _id
         fields["_raw"] = raw
-        fields["_count"] = 0
-        fields["_created"] = Datetime()
+        fields["_count"] = 1
         return fields
 
     def recv(self, name, timeout=None, **kwargs):

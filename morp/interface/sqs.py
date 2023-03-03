@@ -259,9 +259,9 @@ class SQS(Interface):
 
         # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.receive_messages
         fields["_count"] = int(raw.attributes.get('ApproximateReceiveCount', 1))
-        created_stamp = int(raw.attributes.get('SentTimestamp', 0.0)) / 1000.0
-        if created_stamp:
-            fields["_created"] = Datetime(created_stamp) 
+#         created_stamp = int(raw.attributes.get('SentTimestamp', 0.0)) / 1000.0
+#         if created_stamp:
+#             fields["_created"] = Datetime(created_stamp) 
 
         return fields
 

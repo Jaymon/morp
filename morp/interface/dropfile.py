@@ -4,6 +4,7 @@ import fcntl
 import errno
 import datetime
 import time
+import uuid
 
 from datatypes import (
     Dirpath,
@@ -55,29 +56,38 @@ class Dropfile(Interface):
 
     def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as queue:
-            dt = Datetime()
+            now = time.time_ns()
+            _id = str(uuid.uuid4())
 
             if delay_seconds := kwargs.get('delay_seconds', 0):
-                dt = dt + datetime.timedelta(seconds=delay_seconds)
+                now += delay_seconds
 
-            message = queue.child_file(f"{dt.timestamp()}-1.txt")
+            message = queue.child_file(f"{now}-{_id}-1.txt")
             message.write_bytes(body)
+            return _id, message
 
     def _count(self, name, connection, **kwargs):
         with self.queue(name, connection) as queue:
             return queue.files().count()
 
+    def recv_to_fields(self, _id, body, raw):
+        fields = super().recv_to_fields(_id, body, raw)
+        fields["_count"] = raw._count
+        fields["_body"] = body
+        #fields["_created"] = raw.stat[9]
+        return fields
+
     def _recv(self, name, connection, **kwargs):
-        body = ""
-        raw = None
+        _id = body = raw = None
         timeout = kwargs.get('timeout', None) or 0.0
         count = 0.0
 
         with self.queue(name, connection) as queue:
             while count <= timeout:
-                now = Datetime()
+                now = time.time_ns()
                 for message in queue.files().sort():
-                    then = Datetime(message.fileroot.split("-")[0])
+                    parts = message.fileroot.split("-")
+                    then = int(parts[0])
                     if now > then:
                         fp = message.open("rb+")
                         try:
@@ -85,7 +95,9 @@ class Dropfile(Interface):
 
                             body = fp.read()
                             if body:
+                                _id = parts[1]
                                 message.fp = fp
+                                message._count = parts[2]
                                 raw = message
                                 break
 
@@ -105,25 +117,29 @@ class Dropfile(Interface):
                     if count < timeout:
                         time.sleep(0.1)
 
-        return body, raw
+        return _id, body, raw
 
-    def _ack(self, name, connection, imessage, **kwargs):
-        self._cleanup(imessage.raw.fp, imessage.raw)
+    def _ack(self, name, connection, fields, **kwargs):
+        message = fields["_raw"]
+        self._cleanup(message.fp, message)
 
-    def _release(self, name, connection, imessage, **kwargs):
+    def _release(self, name, connection, fields, **kwargs):
         delay_seconds = kwargs.get('delay_seconds', 0)
 
-        message = imessage.raw
+        _id = fields["_id"]
+        message = fields["_raw"]
+        body = fields["_body"]
         fp = message.fp
 
         if delay_seconds:
-            now = Datetime()
-            then = now + datetime.timedelta(seconds=delay_seconds)
+            now = time.time_ns() + delay_seconds
 
-            # let's move the file to the future and then delete the old message
-            count = imessage._count + 1
-            dest = Filepath(message.dirname, f"{then.timestamp()}-{count}.txt")
-            dest.write_bytes(imessage.body)
+            # let's move the file to the future and then delete the old message,
+            # sadly, because we've got a lock on the file we can't mv or copy it,
+            # so we're just going to create a new file
+            count = fields["_count"] + 1
+            dest = Filepath(message.dirname, f"{now}-{_id}-{count}.txt")
+            dest.write_bytes(body)
             self._cleanup(fp, message)
 
         else:
