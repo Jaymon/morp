@@ -41,10 +41,7 @@ class _InterfaceTest(TestCase):
         self.assertEqual(1, inter.count(name))
 
         fields = inter.recv(name)
-        self.assertEqual(
-            {k:v for k, v in msg.fields.items() if not k.startswith("_")},
-            {k:v for k, v in fields.items() if not k.startswith("_")}
-        )
+        self.assertEqualFields(msg.fields, fields)
 
         inter.ack(name, fields)
         self.assertEventuallyEqual(0, lambda: inter.count(name))
@@ -60,10 +57,7 @@ class _InterfaceTest(TestCase):
         m1.interface.send(name, m1.fields)
 
         fields = m1.interface.recv(name)
-        self.assertEqual(
-            {k:v for k, v in m1.fields.items() if not k.startswith("_")},
-            {k:v for k, v in fields.items() if not k.startswith("_")}
-        )
+        self.assertEqualFields(m1.fields, fields)
 
         m1.interface.ack(name, fields)
 

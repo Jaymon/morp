@@ -57,10 +57,10 @@ class Dropfile(Interface):
     def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as queue:
             now = time.time_ns()
-            _id = str(uuid.uuid4())
+            _id = uuid.uuid4().hex
 
             if delay_seconds := kwargs.get('delay_seconds', 0):
-                now += delay_seconds
+                now += (delay_seconds * 1000000000)
 
             message = queue.child_file(f"{now}-{_id}-1.txt")
             message.write_bytes(body)
@@ -97,7 +97,7 @@ class Dropfile(Interface):
                             if body:
                                 _id = parts[1]
                                 message.fp = fp
-                                message._count = parts[2]
+                                message._count = int(parts[2])
                                 raw = message
                                 break
 
@@ -132,7 +132,7 @@ class Dropfile(Interface):
         fp = message.fp
 
         if delay_seconds:
-            now = time.time_ns() + delay_seconds
+            now = time.time_ns() + (delay_seconds * 1000000000)
 
             # let's move the file to the future and then delete the old message,
             # sadly, because we've got a lock on the file we can't mv or copy it,

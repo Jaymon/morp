@@ -207,3 +207,9 @@ class TestCase(testdata.TestCase):
             })
         return fields
 
+    def assertEqualFields(self, fields1, fields2, **kwargs):
+        return self.assertEqual(
+            {k:v for k, v in fields1.items() if not k.startswith("_")},
+            {k:v for k, v in fields2.items() if not k.startswith("_")}
+        )
+

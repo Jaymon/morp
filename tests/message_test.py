@@ -31,10 +31,11 @@ class MessageTest(TestCase):
         self.assertEqual(4, m2.bar)
 
     def test_fields(self):
-        """just make sure interface_message doesn't end up in the fields dict"""
+        """just make sure defined class properties don't end up in the fields dict"""
         m = self.get_message()
-        m.imessage = 1
-        self.assertFalse("imessage" in m.fields)
+        type(m).foobar = 1
+        m.foobar = 2
+        self.assertFalse("foobar" in m.fields)
 
     def test_release_1(self):
         m = self.get_message()
@@ -80,7 +81,7 @@ class MessageTest(TestCase):
         m.send()
 
         with m.__class__.recv() as m2:
-            self.assertEqual(m.fields, m2.fields)
+            self.assertEqualFields(m.fields, m2.fields)
 
     def test_send_later(self):
         m = self.get_message()
@@ -92,14 +93,14 @@ class MessageTest(TestCase):
         time.sleep(1)
 
         with m.__class__.recv_for(1) as m2:
-            self.assertEqual(m.fields, m2.fields)
+            self.assertEqualFields(m.fields, m2.fields)
 
     def test_recv_block_success(self):
         m = self.get_message()
         m.send()
 
         with m.__class__.recv() as m2:
-            self.assertEqual(m.fields, m2.fields)
+            self.assertEqualFields(m.fields, m2.fields)
 
     def test_recv_block_error(self):
         m = self.get_message()

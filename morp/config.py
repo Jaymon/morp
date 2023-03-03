@@ -7,6 +7,8 @@ import base64
 import dsnparse
 from datatypes import ReflectClass
 from datatypes import property as cachedproperty
+from datatypes.config import Environ
+
 
 from .compat import *
 
@@ -153,4 +155,13 @@ class DsnConnection(Connection):
                 break
 
         return ret
+
+
+environ = Environ("MORP_")
+
+environ.setdefault('DISABLED', False, type=bool)
+"""If set to 1 then messages won't actually be sent"""
+
+environ.setdefault('PREFIX', '')
+"""This prefix will be used to create the queue, see Message.get_name()"""
 
