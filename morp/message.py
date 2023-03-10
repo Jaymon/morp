@@ -211,13 +211,18 @@ class Message(object):
                 count += 1
 
     @classmethod
-    def create(cls, fields=None, **fields_kwargs):
+    def create(cls, *args, **kwargs):
         """create an instance of cls with the passed in fields and send it off
 
-        :param fields: dict, field_name keys, with their respective values
-        :param **fields_kwargs: dict, if you would rather pass in fields as name=val
+        Since this passed *args and **kwargs directly to .__init__, you can override
+        the .__init__ method and customize it and this method will inherit the
+        child class's changes. And the signature of this method should always match
+        .__init__
+
+        :param *args: list[Any], passed directly to .__init__
+        :param **kwargs: dict[str, Any], passed directly to .__init__
         """
-        instance = cls(fields, **fields_kwargs)
+        instance = cls(*args, **kwargs)
         instance.send()
         return instance
 

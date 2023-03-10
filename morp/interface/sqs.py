@@ -47,6 +47,8 @@ class SQS(Interface):
         region = Region(self.connection_config.options.get('region', ''))
         self.connection_config.options['region'] = region
 
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html
+        # https://github.com/boto/boto3/issues/2360#issuecomment-761526845
         if arn := self.connection_config.options.get("arn", ""):
             sts = boto3.client(
                 "sts",
