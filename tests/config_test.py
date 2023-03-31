@@ -20,8 +20,28 @@ class ConnectionTest(TestCase):
         self.assertNotEqual("", c.key)
         self.assertEqual(c.key, c.key)
 
+    def test_dsn_connection_2(self):
+        c = DsnConnection("sqs:")
+        self.assertTrue(c.interface_name.endswith("SQS"))
+
+        c = DsnConnection("sqs:?arn=arn:aws:iam::909696579953:role/IndexerTasks")
+        self.assertTrue("arn:aws:iam::" in c.options["arn"])
+
     def test_dsn_connection(self):
         tests = [
+            (
+                'sqs://?arn=arn:aws:iam::9999999:role/RoleName',
+                dict(
+                    hosts=[],
+                    interface_name="morp.interface.sqs:SQS",
+                    name="",
+                    password=None,
+                    username=None,
+                    options={
+                        "arn": "arn:aws:iam::9999999:role/RoleName",
+                    },
+                )
+            ),
             (
                 'path.to.Interface://127.0.0.1:4151',
                 dict(
@@ -46,8 +66,8 @@ class ConnectionTest(TestCase):
                     options={
                         "foo": "bar",
                         "bar": "che",
-                        "max_timeout": "60",
-                        "backoff_multiplier": "1",
+                        "max_timeout": 60,
+                        "backoff_multiplier": 1,
                     },
                     name="name"
                 )
@@ -59,7 +79,7 @@ class ConnectionTest(TestCase):
                     password='AWS_KEY',
                     interface_name='morp.interface.sqs.SQS',
                     options={
-                        'read_lock': '120',
+                        'read_lock': 120,
                         "max_timeout": 3600,
                         "backoff_multiplier": 5,
                     }
@@ -79,7 +99,12 @@ class ConnectionTest(TestCase):
         for t in tests:
             c = DsnConnection(t[0])
             for k, v in t[1].items():
-                self.assertEqual(v, getattr(c, k), k)
+                if isinstance(v, dict):
+                    for vk, vv in v.items():
+                        self.assertEqual(vv, getattr(c, k).get(vk), k)
+
+                else:
+                    self.assertEqual(v, getattr(c, k), k)
 
     def test_attrs_and_sqs_alias(self):
         c = DsnConnection("SQS://AWS_ID:AWS_KEY@?KmsMasterKeyId=foo-bar")

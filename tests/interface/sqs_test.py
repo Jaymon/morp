@@ -23,4 +23,3 @@ class InterfaceTest(_InterfaceTest):
         attrs = inter.get_attrs(KmsMasterKeyId="foo-bar", KmsDataKeyReusePeriodSeconds=3600)
         self.assertTrue("KmsMasterKeyId" in attrs)
 
-

@@ -112,36 +112,28 @@ class DsnConnection(Connection):
         d = self.parse(dsn)
         super().__init__(**d)
 
-    @classmethod
-    def parse(cls, dsn):
+    def parse(self, dsn):
         d = {'options': {}, 'hosts': []}
-        p = dsnparse.ParseResult.parse(dsn)
+        parser = dsnparse.parse(dsn)
+        p = parser.fields
+        p["dsn"] = parser.parser.dsn
 
         # get the scheme, which is actually our interface_name
-        d['interface_name'] = cls.normalize_scheme(p["scheme"])
+        d['interface_name'] = self.normalize_scheme(p["scheme"])
 
         dsn_hosts = []
-        if "hostname" in p:
+        if p["hostname"]:
             d['hosts'].append((p["hostname"], p.get('port', None)))
 
-        d['options'] = p["query"] or {}
-
-        if "username" in p:
-            d['username'] = p["username"]
-
-        if "password" in p:
-            d['password'] = p["password"]
-
-        if "fragment" in p:
-            d['name'] = p["fragment"]
-
-        if "path" in p:
-            d["path"] = p["path"]
+        d['options'] = p["query_params"] or {}
+        d['name'] = p["fragment"]
+        d['username'] = p["username"]
+        d['password'] = p["password"]
+        d["path"] = p["path"]
 
         return d
 
-    @classmethod
-    def normalize_scheme(cls, v):
+    def normalize_scheme(self, v):
         ret = v
         d = {
             "morp.interface.sqs:SQS": set(["sqs"]),
