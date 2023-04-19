@@ -60,7 +60,14 @@ class SQS(Interface):
             session_ttl=self.connection_config.options.get("session_ttl", 3600),
         ).refreshable_session()
 
-        self._connection = session.resource("sqs")
+        boto_kwargs = {}
+        for opt in self.connection_config.options:
+            if opt.startswith("boto_"):
+                boto_kwargs[opt.replace("boto_", "")] = self.connection_config.options[opt]
+        if boto_kwargs:
+            self.log(f"SQS using boto kwargs: {boto_kwargs}")
+
+        self._connection = session.resource("sqs", **boto_kwargs)
 
         self.log("SQS connected to region {}", region)
 
