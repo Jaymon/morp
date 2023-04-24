@@ -4,9 +4,6 @@ from contextlib import contextmanager
 import re
 import itertools
 import base64
-from uuid import uuid4
-from datetime import datetime, timezone
-from time import time
 
 import boto3
 from botocore.exceptions import ClientError
@@ -35,6 +32,94 @@ class Region(String):
         return session.get_available_regions("ec2")
 
 
+class RefreshableSession(boto3.Session):
+    """Boto Session wrapper which can use a refreshable session, this allows role
+    assumption to automatically refresh without the interface having to do anything
+
+    :Example:
+        session = RefreshableSession(connection_config)
+
+        # we now can cache this client object without worrying about expiring credentials
+        client = session.client("s3")
+
+    this is based off of this: https://stackoverflow.com/q/63724485
+    """
+    def __init__(self, connection_config):
+        """
+        :param connection_config: dict, this is the connection dict passed to the
+            interface, it should be just passed to this
+        """
+        self.connection_config = connection_config
+
+        # get refreshable credentials
+        refreshable_credentials = RefreshableCredentials.create_from_metadata(
+            metadata=self._get_credentials(),
+            refresh_using=self._get_credentials,
+            method="sts-assume-role",
+        )
+
+        # attach refreshable credentials current session
+        session = get_session()
+        session._credentials = refreshable_credentials
+        session.set_config_variable(
+            "region",
+            self.connection_config.options["region"]
+        )
+        super().__init__(botocore_session=session)
+
+    def _get_credentials(self):
+        """Get session credentials
+
+        This is a separate method because it will be used as a callback in the
+        refreshable credentials object that's created in __init__
+
+        :returns: dict
+        """
+        region = self.connection_config.options["region"]
+
+        session = boto3.Session(
+            region_name=region,
+            profile_name=self.connection_config.options.get("profile_name", None),
+        )
+
+        # if an sts arn is given, get credential by assuming given role
+        if arn := self.connection_config.options.get("arn", ""):
+            sts_client = session.client(
+                service_name="sts",
+                region_name=region,
+            )
+
+            response = sts_client.assume_role(
+                RoleArn=arn,
+                RoleSessionName=self.connection_config.options.get(
+                    "session_name",
+                    "morp"
+                ),
+                DurationSeconds=self.connection_config.options.get(
+                    "session_ttl",
+                    3600
+                ),
+            ).get("Credentials")
+
+            credentials = {
+                "access_key": response.get("AccessKeyId"),
+                "secret_key": response.get("SecretAccessKey"),
+                "token": response.get("SessionToken"),
+                "expiry_time": response.get("Expiration").isoformat(),
+            }
+
+        else:
+            session_credentials = session.get_credentials().__dict__
+            credentials = {
+                "access_key": session_credentials.get("access_key"),
+                "secret_key": session_credentials.get("secret_key"),
+                "token": session_credentials.get("token"),
+                "expiry_time": Datetime(seconds=self.session_ttl).isoformat(),
+            }
+
+        return credentials
+
+
 class SQS(Interface):
     """wraps amazon's SQS to make it work with our generic interface
 
@@ -52,13 +137,7 @@ class SQS(Interface):
         region = Region(self.connection_config.options.get('region', ''))
         self.connection_config.options['region'] = region
 
-        session = RefreshableBotoSession(
-            region_name=region,
-            session_name="morp",
-            sts_arn=self.connection_config.options.get("arn"),
-            profile_name=self.connection_config.options.get("profile"),
-            session_ttl=self.connection_config.options.get("session_ttl", 3600),
-        ).refreshable_session()
+        session = RefreshableSession(self.connection_config)
 
         boto_kwargs = {}
         for opt in self.connection_config.options:
@@ -280,114 +359,3 @@ class SQS(Interface):
     def _is_client_error_match(self, e, codes):
         return e.response["Error"]["Code"] in codes
 
-
-class RefreshableBotoSession:
-    """
-    Boto Helper class which lets us create refreshable session, so that we can cache the client or resource.
-
-    Usage
-    -----
-    session = RefreshableBotoSession().refreshable_session()
-
-    client = session.client("s3") # we now can cache this client object without worrying about expiring credentials
-
-    ---
-    Source from: https://stackoverflow.com/q/63724485
-    """
-
-    def __init__(
-        self,
-        region_name: str = None,
-        profile_name: str = None,
-        sts_arn: str = None,
-        session_name: str = None,
-        session_ttl: int = 3600,
-    ):
-        """
-        Initialize `RefreshableBotoSession`
-
-        Parameters
-        ----------
-        region_name : str (optional, default=None)
-            Default region when creating new connection.
-            This is passed to the boto3.Session() constructor (region_name).
-
-        profile_name : str (optional, default=None)
-            The name of the aws profile to use.
-            This is passed to the boto3.Session() constructor (profile_name).
-
-        sts_arn : str (optional, default=None)
-            The role arn to sts before creating session.
-            This is passed to the sts.assume_role() method (RoleArn).
-
-        session_name : str (optional, default=uuid4().hex)
-            An identifier for the assumed role session. (required if `sts_arn` is given)
-            This is passed to the sts.assume_role() method (RoleSessionName).
-
-        session_ttl : int (optional, default=3600)
-            An integer number to set the TTL (in secs) for each session. Beyond this session, it will renew the token.
-            This is passed to the sts.assume_role() method (DurationSeconds).
-        """
-
-        self.region_name = region_name
-        self.profile_name = profile_name
-        self.sts_arn = sts_arn
-        self.session_name = session_name or uuid4().hex
-        self.session_ttl = session_ttl
-
-    def __get_session_credentials(self):
-        """
-        Get session credentials
-        """
-        session = boto3.Session(
-            region_name=self.region_name, profile_name=self.profile_name
-        )
-
-        # if sts_arn is given, get credential by assuming given role
-        if self.sts_arn:
-            sts_client = session.client(
-                service_name="sts", region_name=self.region_name
-            )
-            response = sts_client.assume_role(
-                RoleArn=self.sts_arn,
-                RoleSessionName=self.session_name,
-                DurationSeconds=self.session_ttl,
-            ).get("Credentials")
-
-            credentials = {
-                "access_key": response.get("AccessKeyId"),
-                "secret_key": response.get("SecretAccessKey"),
-                "token": response.get("SessionToken"),
-                "expiry_time": response.get("Expiration").isoformat(),
-            }
-        else:
-            session_credentials = session.get_credentials().__dict__
-            credentials = {
-                "access_key": session_credentials.get("access_key"),
-                "secret_key": session_credentials.get("secret_key"),
-                "token": session_credentials.get("token"),
-                "expiry_time": datetime.fromtimestamp(
-                    time() + self.session_ttl, tz=timezone.utc
-                ).isoformat(),
-            }
-
-        return credentials
-
-    def refreshable_session(self) -> boto3.Session:
-        """
-        Get refreshable boto3 session.
-        """
-        # get refreshable credentials
-        refreshable_credentials = RefreshableCredentials.create_from_metadata(
-            metadata=self.__get_session_credentials(),
-            refresh_using=self.__get_session_credentials,
-            method="sts-assume-role",
-        )
-
-        # attach refreshable credentials current session
-        session = get_session()
-        session._credentials = refreshable_credentials
-        session.set_config_variable("region", self.region_name)
-        autorefresh_session = boto3.Session(botocore_session=session)
-
-        return autorefresh_session
