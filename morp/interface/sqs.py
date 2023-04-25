@@ -7,6 +7,8 @@ import base64
 
 import boto3
 from botocore.exceptions import ClientError
+from botocore.credentials import RefreshableCredentials
+from botocore.session import get_session
 
 from ..compat import *
 from .base import Interface
@@ -30,6 +32,94 @@ class Region(String):
         return session.get_available_regions("ec2")
 
 
+class RefreshableSession(boto3.Session):
+    """Boto Session wrapper which can use a refreshable session, this allows role
+    assumption to automatically refresh without the interface having to do anything
+
+    :Example:
+        session = RefreshableSession(connection_config)
+
+        # we now can cache this client object without worrying about expiring credentials
+        client = session.client("s3")
+
+    this is based off of this: https://stackoverflow.com/q/63724485
+    """
+    def __init__(self, connection_config):
+        """
+        :param connection_config: dict, this is the connection dict passed to the
+            interface, it should be just passed to this
+        """
+        self.connection_config = connection_config
+
+        # get refreshable credentials
+        refreshable_credentials = RefreshableCredentials.create_from_metadata(
+            metadata=self._get_credentials(),
+            refresh_using=self._get_credentials,
+            method="sts-assume-role",
+        )
+
+        # attach refreshable credentials current session
+        session = get_session()
+        session._credentials = refreshable_credentials
+        session.set_config_variable(
+            "region",
+            self.connection_config.options["region"]
+        )
+        super().__init__(botocore_session=session)
+
+    def _get_credentials(self):
+        """Get session credentials
+
+        This is a separate method because it will be used as a callback in the
+        refreshable credentials object that's created in __init__
+
+        :returns: dict
+        """
+        region = self.connection_config.options["region"]
+
+        session = boto3.Session(
+            region_name=region,
+            profile_name=self.connection_config.options.get("profile_name", None),
+        )
+
+        # if an sts arn is given, get credential by assuming given role
+        if arn := self.connection_config.options.get("arn", ""):
+            sts_client = session.client(
+                service_name="sts",
+                region_name=region,
+            )
+
+            response = sts_client.assume_role(
+                RoleArn=arn,
+                RoleSessionName=self.connection_config.options.get(
+                    "session_name",
+                    "morp"
+                ),
+                DurationSeconds=self.connection_config.options.get(
+                    "session_ttl",
+                    3600
+                ),
+            ).get("Credentials")
+
+            credentials = {
+                "access_key": response.get("AccessKeyId"),
+                "secret_key": response.get("SecretAccessKey"),
+                "token": response.get("SessionToken"),
+                "expiry_time": response.get("Expiration").isoformat(),
+            }
+
+        else:
+            session_credentials = session.get_credentials().__dict__
+            credentials = {
+                "access_key": session_credentials.get("access_key"),
+                "secret_key": session_credentials.get("secret_key"),
+                "token": session_credentials.get("token"),
+                "expiry_time": Datetime(seconds=self.session_ttl).isoformat(),
+            }
+
+        return credentials
+
+
 class SQS(Interface):
     """wraps amazon's SQS to make it work with our generic interface
 
@@ -47,39 +137,16 @@ class SQS(Interface):
         region = Region(self.connection_config.options.get('region', ''))
         self.connection_config.options['region'] = region
 
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html
-        # https://github.com/boto/boto3/issues/2360#issuecomment-761526845
-        if arn := self.connection_config.options.get("arn", ""):
-            sts = boto3.client(
-                "sts",
-                aws_access_key_id=connection_config.username,
-                aws_secret_access_key=connection_config.password
-            )
+        session = RefreshableSession(self.connection_config)
 
-            role_info = sts.assume_role(
-                RoleArn=arn,
-                RoleSessionName="morp",
-            )
-            credentials = role_info["Credentials"]
+        boto_kwargs = {}
+        for opt in self.connection_config.options:
+            if opt.startswith("boto_"):
+                boto_kwargs[opt.replace("boto_", "")] = self.connection_config.options[opt]
+        if boto_kwargs:
+            self.log(f"SQS using boto kwargs: {boto_kwargs}")
 
-            self._connection = boto3.resource(
-                "sqs",
-                region_name=region,
-                aws_access_key_id=credentials["AccessKeyId"],
-                aws_secret_access_key=credentials["SecretAccessKey"],
-                aws_session_token=credentials["SessionToken"]
-            )
-
-            # we no longer need the sts client so clean it up
-            self._close_client(sts)
-
-        else:
-            self._connection = boto3.resource(
-                'sqs',
-                region_name=region,
-                aws_access_key_id=connection_config.username,
-                aws_secret_access_key=connection_config.password
-            )
+        self._connection = session.resource("sqs", **boto_kwargs)
 
         self.log("SQS connected to region {}", region)
 
