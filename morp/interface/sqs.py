@@ -9,6 +9,7 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.credentials import RefreshableCredentials
 from botocore.session import get_session
+from datatypes import Datetime
 
 from ..compat import *
 from .base import Interface
@@ -89,16 +90,14 @@ class RefreshableSession(boto3.Session):
                 region_name=region,
             )
 
+            session_ttl = self.connection_config.options.get("session_ttl", 3600)
             response = sts_client.assume_role(
                 RoleArn=arn,
                 RoleSessionName=self.connection_config.options.get(
                     "session_name",
                     "morp"
                 ),
-                DurationSeconds=self.connection_config.options.get(
-                    "session_ttl",
-                    3600
-                ),
+                DurationSeconds=session_ttl,
             ).get("Credentials")
 
             credentials = {
@@ -114,7 +113,7 @@ class RefreshableSession(boto3.Session):
                 "access_key": session_credentials.get("access_key"),
                 "secret_key": session_credentials.get("secret_key"),
                 "token": session_credentials.get("token"),
-                "expiry_time": Datetime(seconds=self.session_ttl).isoformat(),
+                "expiry_time": Datetime(seconds=session_ttl).isoformat(),
             }
 
         return credentials
