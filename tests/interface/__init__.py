@@ -61,7 +61,18 @@ class _InterfaceTest(TestCase):
 
         m1.interface.ack(name, fields)
 
-    def test_release(self):
+    def test_ack_message(self):
+        m1 = self.get_message()
+        m1.send()
+
+        with type(m1).recv() as m2:
+            m2.ack()
+
+        inter = m2.interface
+        name = m2.get_name()
+        self.assertEventuallyEqual(0, lambda: inter.count(name))
+
+    def test_release_interface(self):
         m = self.get_message()
         name = m.get_name()
         inter = m.interface
@@ -75,4 +86,12 @@ class _InterfaceTest(TestCase):
         fields = inter.recv(name)
         self.assertFalse(fields)
         self.assertEventuallyEqual(1, lambda: inter.count(name))
+
+    def test_release_message(self):
+        m = self.get_message()
+        m.send()
+
+        with type(m).recv() as m2:
+            self.assertEqual(1, m2._count)
+            m2.release()
 
