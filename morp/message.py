@@ -294,13 +294,13 @@ class Message(object):
 
     def ack(self):
         """Acknowledge this message has been processed"""
-        cls.interface.ack(cls.get_name(), self.to_interface())
+        self.interface.ack(self.get_name(), self.to_interface())
 
     def release(self, **kwargs):
         """Release this message back to the interface so another message instance
         can pick it up
         """
-        cls.interface.release(cls.get_name(), self.to_interface(), **kwargs)
+        self.interface.release(self.get_name(), self.to_interface(), **kwargs)
 
     def release_later(self, delay_seconds):
         """If you want to release the message and not have it be visible for some

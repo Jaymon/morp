@@ -138,11 +138,17 @@ class Dropfile(Interface):
         # one thing we can do with an exclusive lock to tell other processes
         # we have already looked at the file, I wish we could delete under an 
         # exclusive lock)
-        if kwargs.get("truncate", True):
-            fp.truncate()
+        try:
+            if kwargs.get("truncate", True):
+                fp.truncate()
 
-        fcntl.flock(fp, fcntl.LOCK_UN)
-        fp.close()
+            fcntl.flock(fp, fcntl.LOCK_UN)
+            fp.close()
+
+        except ValueError:
+            # .truncate - ValueError: truncate of closed file
+            # .flock - ValueError: I/O operation on closed file
+            pass
 
         if kwargs.get("delete", True):
             message.delete()
