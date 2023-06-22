@@ -84,7 +84,6 @@ class Interface(InterfaceABC):
 
         this will set the raw db connection to self.connection
         """
-
         if self.connected: return self.connected
         if connection_config: self.connection_config = connection_config
 
