@@ -19,5 +19,5 @@ from .exception import (
 )
 
 
-__version__ = '5.2.1'
+__version__ = '5.2.2'
 

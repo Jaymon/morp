@@ -83,6 +83,8 @@ class RefreshableSession(boto3.Session):
             profile_name=self.connection_config.options.get("profile_name", None),
         )
 
+        session_ttl = self.connection_config.options.get("session_ttl", 3600)
+
         # if an sts arn is given, get credential by assuming given role
         if arn := self.connection_config.options.get("arn", ""):
             sts_client = session.client(
@@ -90,7 +92,6 @@ class RefreshableSession(boto3.Session):
                 region_name=region,
             )
 
-            session_ttl = self.connection_config.options.get("session_ttl", 3600)
             response = sts_client.assume_role(
                 RoleArn=arn,
                 RoleSessionName=self.connection_config.options.get(
