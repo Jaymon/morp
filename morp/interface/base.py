@@ -251,7 +251,14 @@ class Interface(InterfaceABC):
                 timeout=timeout,
                 **kwargs
             )
-            return self.recv_to_fields(_id, body, raw) if body else None
+            fields = self.recv_to_fields(_id, body, raw) if body else None
+            if fields:
+                self.log_for(
+                    debug=(["Message {} received from {} -- {}", _id, name, fields],),
+                    info=(["Message {} recceived from {} -- {}", _id, name, fields.keys()],)
+                )
+
+            return fields
 
     def ack(self, name, fields, **kwargs):
         """this will acknowledge that the interface message was received successfully
