@@ -1,6 +1,6 @@
 # Morp
 
-Send messages without really thinking about it.
+Send messages without really thinking about it. Can use dropfiles and [Amazon SQS](http://aws.amazon.com/sqs/).
 
 
 ## Installation
@@ -66,6 +66,16 @@ You can also override some default values like `region` and `read_lock`:
     sqs://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@?region=${AWS_DEFAULT_REGION}&read_lock=120
 
 
+### Serializers
+
+* `pickle` (default)
+* `json`
+
+```
+MORP_DSN="sqs://x:x@?serializer=json"
+```
+
+
 ## Encryption
 
 If you would like to encrypt all your messages, you can pass in a `key` argument to your dsn and Morp will take care of encrypting and decrypting the messages for you transparently.
@@ -115,3 +125,34 @@ Now, you can have the Morp command line consumer read from that queue instead:
 ```
 $ morp custom-queue-name
 ```
+
+
+## Development
+
+### To work locally:
+
+```
+$ git clone https://github.com/Jaymon/morp
+$ cd morp
+```
+
+Optional:
+
+```
+$ python3 - venv .venv && source .venv/bin/activate
+```
+
+Install dependencies with pip `editable` mode
+
+```
+$ pip install -e .
+```
+
+Set up a local sqs using [elasticmq](https://github.com/softwaremill/elasticmq).
+
+And set the appropriate DSN:
+
+```
+$ export MORP_DSN="sqs://x:x@?region=elasticmq&boto_endpoint_url=http://localhost:9324"
+```
+

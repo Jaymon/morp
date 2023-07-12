@@ -6,9 +6,9 @@ sys.path.extend(['.', '..'])
 import morp
 
 class Foo(morp.Message):
-    pass
+    name = "queue1"
 
 while True:
-    with Foo.recv(60) as f:
-        print "receiving: {}".format(f.fields)
+    with Foo.recv() as f:
+        print(f"receiving: {f.fields}")
 

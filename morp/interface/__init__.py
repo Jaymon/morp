@@ -5,6 +5,7 @@ import sys
 from contextlib import contextmanager
 import base64
 import datetime
+import json
 
 from cryptography.fernet import Fernet
 import dsnparse

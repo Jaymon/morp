@@ -2,4 +2,6 @@
 *.tmproj
 *.pyc
 .vagrant
-
+.venv
+*.egg-info
+__pycache__
