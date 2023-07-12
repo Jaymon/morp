@@ -129,7 +129,7 @@ $ morp custom-queue-name
 
 ## Development
 
-### To work locally:
+### To work locally
 
 ```
 $ git clone https://github.com/Jaymon/morp
