@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
 import logging
 import sys
 from contextlib import contextmanager
@@ -8,8 +7,12 @@ import datetime
 import json
 
 from datatypes import LogMixin, Datetime
-from cryptography.fernet import Fernet
 import dsnparse
+
+try:
+    from cryptography.fernet import Fernet
+except ImportError:
+    pass
 
 from ..compat import *
 from ..config import DsnConnection
@@ -20,51 +23,67 @@ logger = logging.getLogger(__name__)
 
 
 class InterfaceABC(LogMixin):
-    """This abstract base class containing all the methods that need to be implemented
-    in a child interface class.
+    """This abstract base class containing all the methods that need to be
+    implemented in a child interface class.
 
     Child classes should extend Interface (which extends this class). Interface
-    contains the public API for using the interface, these methods are broken out
-    from Interface just for convenience of seeing all the methods that must be
-    implemented
+    contains the public API for using the interface, these methods are broken
+    out from Interface just for convenience of seeing all the methods that must
+    be implemented
     """
-    def _connect(self, connection_config): raise NotImplementedError()
+    def _connect(self, connection_config):
+        raise NotImplementedError()
 
-    def get_connection(self): raise NotImplementedError()
+    def get_connection(self):
+        """Returns a connection
 
-    def _close(self): raise NotImplementedError()
+        usually the body of this is as simple as `return self._connection` but
+        needs to be implemented because the interfaces can be much more
+        convoluted in how it creates and manages the connection
+
+        :returns: Any, the interface connection instance
+        """
+        raise NotImplementedError()
+
+    def _close(self):
+        raise NotImplementedError()
 
     def _send(self, name, connection, body, **kwargs):
         """similar to self.send() but this takes a body, which is the message
         completely encoded and ready to be sent by the backend
 
-        :returns: tuple, (_id, raw) where _id is the message unique id and raw is
-            the returned receipt from the backend
+        :returns: tuple[str, Any], (_id, raw) where _id is the message unique id
+            and raw is the returned receipt from the backend
         """
         raise NotImplementedError()
 
     def _count(self, name, connection, **kwargs):
         """count how many messages are currently in the queue
 
-        :returns: int, the rough count, depending on the backend this might not be exact
+        :returns: int, the rough count, depending on the backend this might not
+            be exact
         """
         raise NotImplementedError()
 
     def _recv(self, name, connection, **kwargs):
         """
-        :returns: tuple, (_id, body, raw) where body is the body that was originally
-            passed into send, raw is the untouched object returned from recv, and
-            _id is the unique id of the message
+        :returns: tuple[str, Any], (_id, body, raw) where body is the body that
+            was originally passed into send, raw is the untouched object
+            returned from recv, and _id is the unique id of the message
         """
         raise NotImplementedError()
 
-    def _ack(self, name, connection, fields, **kwargs): raise NotImplementedError()
+    def _ack(self, name, connection, fields, **kwargs):
+        raise NotImplementedError()
 
-    def _release(self, name, connection, fields, **kwargs): raise NotImplementedError()
+    def _release(self, name, connection, fields, **kwargs):
+        raise NotImplementedError()
 
-    def _clear(self, name, connection, **kwargs): raise NotImplementedError()
+    def _clear(self, name, connection, **kwargs):
+        raise NotImplementedError()
 
-    def _delete(self, name, connection, **kwargs): raise NotImplementedError()
+    def _delete(self, name, connection, **kwargs):
+        raise NotImplementedError()
 
 
 class Interface(InterfaceABC):
@@ -143,20 +162,28 @@ class Interface(InterfaceABC):
 
         key = self.connection_config.key
         if key:
-            logger.debug("Encrypting fields")
-            f = Fernet(key)
-            ret = f.encrypt(ret)
+            if Fernet is None:
+                self.warning(
+                    "Cannot encrypt because of missing dependencies"
+                )
+
+            else:
+                logger.debug("Encrypting fields")
+                f = Fernet(key)
+                ret = f.encrypt(ret)
 
         return ret
 
     def send_to_fields(self, _id, fields, raw):
         """This creates the value that is returned from .send()
 
-        :param _id: str, the unique id of the message, usually created by the backend
+        :param _id: str, the unique id of the message, usually created by the
+            backend
         :param fields: dict, the fields that were passed to .send()
         :param raw: mixed: whatever the backend returned after sending body
-        :returns: dict: the fields populated with additional keys. If the key begins
-            with an underscore then that usually means it was populated internally
+        :returns: dict: the fields populated with additional keys. If the key
+            begins with an underscore then that usually means it was populated
+            internally
         """
         fields["_id"] = _id
         fields["_send_raw"] = raw
@@ -186,8 +213,8 @@ class Interface(InterfaceABC):
     def count(self, name, **kwargs):
         """count how many messages are in queue name
 
-        :returns: int, a rough count of the messages in the queue, this is backend
-            dependent and might not be completely accurate
+        :returns: int, a rough count of the messages in the queue, this is
+            backend dependent and might not be completely accurate
         """
         with self.connection(**kwargs) as connection:
             return int(self._count(name, connection=connection))
@@ -198,15 +225,22 @@ class Interface(InterfaceABC):
 
         This turns a backend body back to the original fields
 
-        :param body: bytes, the body returned from the backend that needs to be converted
-            back into a dict
+        :param body: bytes, the body returned from the backend that needs to be
+            converted back into a dict
         :returns: dict, the fields of the original message
         """
         key = self.connection_config.key
         if key:
-            logger.debug("Decoding encrypted body")
-            f = Fernet(key)
-            ret = f.decrypt(ByteString(body))
+            if Fernet is None:
+                self.warning(
+                    "Skipping decrypt because of missing dependencies"
+                )
+                ret = body
+
+            else:
+                logger.debug("Decoding encrypted body")
+                f = Fernet(key)
+                ret = f.decrypt(ByteString(body))
 
         else:
             ret = body
@@ -223,11 +257,13 @@ class Interface(InterfaceABC):
     def recv_to_fields(self, _id, body, raw):
         """This creates the value that is returned from .recv()
 
-        :param _id: str, the unique id of the message, usually created by the backend
+        :param _id: str, the unique id of the message, usually created by the
+            backend
         :param body: bytes, the backend message body
         :param raw: mixed: whatever the backend fetched from its receive method
-        :returns: dict: the fields populated with additional keys. If the key begins
-            with an underscore then that usually means it was populated internally
+        :returns: dict: the fields populated with additional keys. If the key
+            begins with an underscore then that usually means it was populated
+            internally
         """
         fields = self.body_to_fields(body)
         fields["_id"] = _id
@@ -239,10 +275,12 @@ class Interface(InterfaceABC):
         """receive a message from queue name
 
         :param name: str, the queue name
-        :param timeout: integer, seconds to try and receive a message before returning None
-        :returns: dict, the fields that were sent via .send populated with additional
-            keys (additional keys will usually be prefixed with an underscore), it
-            will return None if it failed to fetch (ie, timeout or error)
+        :param timeout: integer, seconds to try and receive a message before
+            returning None
+        :returns: dict, the fields that were sent via .send populated with
+            additional keys (additional keys will usually be prefixed with an
+            underscore), it will return None if it failed to fetch (ie, timeout
+            or error)
         """
         with self.connection(**kwargs) as connection:
             _id, body, raw = self._recv(
@@ -254,30 +292,44 @@ class Interface(InterfaceABC):
             fields = self.recv_to_fields(_id, body, raw) if body else None
             if fields:
                 self.log_for(
-                    debug=(["Message {} received from {} -- {}", _id, name, fields],),
-                    info=(["Message {} recceived from {} -- {}", _id, name, fields.keys()],)
+                    debug=([
+                        "Message {} received from {} -- {}",
+                        _id,
+                        name,
+                        fields
+                    ],),
+                    info=([
+                        "Message {} recceived from {} -- {}",
+                        _id,
+                        name,
+                        fields.keys()
+                    ],)
                 )
 
             return fields
 
     def ack(self, name, fields, **kwargs):
-        """this will acknowledge that the interface message was received successfully
+        """this will acknowledge that the interface message was received
+        successfully
 
         :param name: str, the queue name
         :param fields: dict, these are the fields returned from .recv that have
-            additional fields that the backend will most likely need to ack the message
+            additional fields that the backend will most likely need to ack the
+            message
         """
         with self.connection(**kwargs) as connection:
             self._ack(name, connection=connection, fields=fields)
             self.log("Message {} acked from {}", fields["_id"], name)
 
     def release(self, name, fields, **kwargs):
-        """release the message back into the queue, this is usually for when processing
-        the message has failed and so a new attempt to process the message should be made
+        """release the message back into the queue, this is usually for when
+        processing the message has failed and so a new attempt to process the
+        message should be made
 
         :param name: str, the queue name
         :param fields: dict, these are the fields returned from .recv that have
-            additional fields that the backend will most likely need to release the message
+            additional fields that the backend will most likely need to release
+            the message
         """
         with self.connection(**kwargs) as connection:
             delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
@@ -285,15 +337,27 @@ class Interface(InterfaceABC):
 
             if delay_seconds == 0:
                 if count:
-                    max_timeout = self.connection_config.options.get("max_timeout")
-                    backoff = self.connection_config.options.get("backoff_multiplier")
-                    amplifier = self.connection_config.options.get("backoff_amplifier", count)
+                    max_timeout = self.connection_config.options.get(
+                        "max_timeout"
+                    )
+                    backoff = self.connection_config.options.get(
+                        "backoff_multiplier"
+                    )
+                    amplifier = self.connection_config.options.get(
+                        "backoff_amplifier",
+                        count
+                    )
                     delay_seconds = min(
                         max_timeout,
                         (count * backoff) * amplifier
                     )
 
-            self._release(name, connection=connection, fields=fields, delay_seconds=delay_seconds)
+            self._release(
+                name,
+                connection=connection,
+                fields=fields,
+                delay_seconds=delay_seconds
+            )
             self.log(
                 "Message {} released back to {} count {}, with delay {}s",
                 fields["_id"],
@@ -303,8 +367,8 @@ class Interface(InterfaceABC):
             )
 
     def unsafe_clear(self, name, **kwargs):
-        """cliear the queue name, clearing the queue removes all the messages from
-        the queue but doesn't delete the actual queue
+        """clear the queue name, clearing the queue removes all the messages
+        from the queue but doesn't delete the actual queue
 
         :param name: str, the queue name to clear
         """
@@ -322,8 +386,12 @@ class Interface(InterfaceABC):
             self.log("Queue {} deleted", name)
 
     def raise_error(self, e):
-        """this is just a wrapper to make the passed in exception an InterfaceError"""
-        if isinstance(e, InterfaceError) or hasattr(builtins, e.__class__.__name__):
+        """this is just a wrapper to make the passed in exception an
+        InterfaceError"""
+        if (
+            isinstance(e, InterfaceError)
+            or hasattr(builtins, e.__class__.__name__)
+        ):
             raise e
 
         else:

@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
-import hashlib
-import os
 import base64
 
 import dsnparse
@@ -14,9 +11,11 @@ from .compat import *
 
 
 class Connection(object):
-    """The base connection class, you will most likely always use DsnConnection"""
+    """The base connection class, you will most likely always use DsnConnection
+    """
     name = ""
-    """str, the name of this connection, handy when you have more than one used interface (eg, nsq)"""
+    """str, the name of this connection, handy when you have more than one used
+    interface (eg, nsq)"""
 
     username = ""
     """str, the username (if needed)"""
@@ -31,14 +30,15 @@ class Connection(object):
     """str, the path (if applicable)"""
 
     interface_name = ""
-    """str, full Interface class name -- the interface that will connect to the messaging backend"""
+    """str, full Interface class name -- the interface that will connect to the
+    messaging backend"""
 
     options = None
     """dict, any other interface specific options you need"""
 
     @property
     def interface_class(self):
-        interface_class = ReflectClass.get_class(self.interface_name)
+        interface_class = ReflectClass.resolve_class(self.interface_name)
         return interface_class
 
     @property
@@ -65,8 +65,8 @@ class Connection(object):
         return key
 
     def __init__(self, **kwargs):
-        """
-        set all the values by passing them into this constructor, any unrecognized kwargs get put into .options
+        """set all the values by passing them into this constructor, any
+        unrecognized kwargs get put into .options
 
         :Example:
             c = Connection(
@@ -84,14 +84,23 @@ class Connection(object):
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
+
             else:
                 self.options[key] = val
 
-        self.options.setdefault('max_timeout', 3600) # 1 hour to process message
-        self.options.setdefault('backoff_multiplier', 5) # failure backoff multiplier
+        # 1 hour to process message
+        self.options.setdefault('max_timeout', 3600)
+
+        # failure backoff multiplier
+        self.options.setdefault('backoff_multiplier', 5)
 
     def get_netlocs(self, default_port):
-        return ["{}:{}".format(h[0], default_port if h[1] is None else h[1]) for h in self.hosts]
+        return [
+            "{}:{}".format(
+                h[0],
+                default_port if h[1] is None else h[1]
+            ) for h in self.hosts
+        ]
 
     def get_option(self, key, default_val):
         return getattr(self.options, key, default_val)
@@ -101,7 +110,7 @@ class DsnConnection(Connection):
     """
     Create a connection object from a dsn in the form
 
-        InterfaceName://username:password@host:port?opt1=val1&opt2=val2#connection_name
+        InterfaceName://username:password@host:port?opt1=val1#connection_name
 
     example -- connect to amazon SQS
 
@@ -116,7 +125,7 @@ class DsnConnection(Connection):
         d = {'options': {}, 'hosts': []}
         parser = dsnparse.parse(dsn)
         p = parser.fields
-        p["dsn"] = parser.parser.dsn
+        d["dsn"] = parser.parser.dsn
 
         # get the scheme, which is actually our interface_name
         d['interface_name'] = self.normalize_scheme(p["scheme"])
@@ -137,7 +146,12 @@ class DsnConnection(Connection):
         ret = v
         d = {
             "morp.interface.sqs:SQS": set(["sqs"]),
-            "morp.interface.dropfile:Dropfile": set(["dropfile"]),
+            "morp.interface.dropfile:Dropfile": set(["dropfile", "file"]),
+            "morp.interface.postgres:Postgres": set([
+                "postgres",
+                "postgresql",
+                "psql",
+            ]),
         }
 
         kv = v.lower()

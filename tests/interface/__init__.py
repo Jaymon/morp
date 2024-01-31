@@ -5,8 +5,16 @@ from .. import TestCase, Client, testdata
 
 
 class _InterfaceTest(TestCase):
+    def test_connection_open_close(self):
+        inter = self.get_interface()
+        self.assertTrue(inter.connected)
+
+        inter.close()
+        self.assertFalse(inter.connected)
+
     def test_queue_auto_create(self):
-        """queues should auto-create, this just makes sure that works as intended"""
+        """queues should auto-create, this just makes sure that works as
+        intended"""
         m = self.get_message()
         name = m.get_name()
         inter = m.interface
@@ -47,9 +55,22 @@ class _InterfaceTest(TestCase):
         self.assertEventuallyEqual(0, lambda: inter.count(name))
 
     def test_recv_timeout(self):
+        timeout = 1 # 1s as an int is minimum for SQS
         m = self.get_message()
         with self.assertWithin(1.5):
-            m.interface.recv(m.get_name(), timeout=1) # 1s as an int is minimum for SQS
+            m.interface.recv(m.get_name(), timeout=timeout) 
+
+    def test_recv_atomic(self):
+        name = self.get_name()
+        inter1 = self.get_interface()
+        inter2 = self.get_interface()
+
+        inter1.send(name, self.get_fields())
+
+        m2 = inter1.recv(name)
+        m3 = inter2.recv(name)
+        self.assertIsNotNone(m2)
+        self.assertIsNone(m3)
 
     def test_send_recv_encrypted(self):
         m1 = self.get_message(interface=self.get_encrypted_interface())
@@ -81,7 +102,6 @@ class _InterfaceTest(TestCase):
         fields = inter.recv(name)
         self.assertEqual(1, fields["_count"])
         inter.release(name, fields)
-        #self.assertEqual(1, inter.count(name))
 
         fields = inter.recv(name)
         self.assertFalse(fields)

@@ -32,7 +32,8 @@ class Client(object):
         self.message_classes = []
 
         clear_names = {}
-        for _, message_class in inspect.getmembers(self.module, inspect.isclass):
+        members = inspect.getmembers(self.module, inspect.isclass)
+        for _, message_class in members:
             if issubclass(message_class, Message):
                 message_class.interface = inter
                 clear_names[message_class.get_name()] = message_class
@@ -56,7 +57,9 @@ class Client(object):
         return environ
 
     def run(self, name, count=1, **options):
-        python_cmd = String(subprocess.check_output(["which", "python"]).strip())
+        python_cmd = String(
+            subprocess.check_output(["which", "python"]).strip()
+        )
         cmd = "{} -m morp --count={} --directory={} {}".format(
             python_cmd,
             count,
@@ -93,7 +96,10 @@ class Client(object):
                 ))
 
         except subprocess.CalledProcessError as e:
-            raise RuntimeError("cmd returned {} with output: {}".format(e.returncode, e.output))
+            raise RuntimeError("cmd returned {} with output: {}".format(
+                e.returncode,
+                e.output
+            ))
 
         finally:
             if process:
@@ -148,7 +154,9 @@ class TestCase(testdata.TestCase):
                 config.options[k] = v
 
         else:
-            raise ValueError(f"Could not find a MORP_TEST_DSN for {self.interface_class}")
+            raise ValueError(
+                f"Could not find a MORP_TEST_DSN for {self.interface_class}"
+            )
 
         return config
 
@@ -180,14 +188,22 @@ class TestCase(testdata.TestCase):
         return type(
             NamingConvention(name).camelcase(),
             (Message,),
-            dict(name=name, interface=inter, connection_name=inter.connection_config.name),
+            dict(
+                name=name,
+                interface=inter,
+                connection_name=inter.connection_config.name
+            ),
         )
 
         return orm_class
 
     def get_message(self, name=None, interface=None, config=None, **fields):
         fields = self.get_fields(**fields)
-        return self.get_message_class(name=name, interface=interface, config=config)(**fields)
+        return self.get_message_class(
+            name=name,
+            interface=interface,
+            config=config
+        )(**fields)
 
     def get_imessage(self, name=None, interface=None, **fields):
         name = name or self.get_name()
