@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from contextlib import contextmanager
 import time
+import select
 
 import psycopg
 from psycopg_pool import ConnectionPool
@@ -125,6 +126,12 @@ class Postgres(Interface):
         #table_name = "\"{}\"".format(name)
         return rows.format(*map(lambda n: f"\"{n}\"", names))
 
+    def _render_pubsub_name(self, name):
+        return f"{name}_notify"
+
+    def _render_index_name(self, name):
+        return f"{name}_index"
+
     def _create_table(self, name, connection):
         """Internal method that will create the queue table named `name` if it
         doesn't already exist
@@ -157,7 +164,7 @@ class Postgres(Interface):
                     "  _created",
                     ")"
                 ],
-                f"{name}_index",
+                self._render_index_name(name),
                 name
             )
         ]
@@ -195,6 +202,12 @@ class Postgres(Interface):
             with self.cursor(name, connection) as cursor:
                 cursor.execute(sql, sql_vars)
                 d = cursor.fetchone()
+
+                cursor.execute(self._render_sql(
+                    "NOTIFY {}",
+                    self._render_pubsub_name(name)
+                ))
+
                 return d["_id"], sql_vars
 
         except psycopg.errors.UndefinedTable as e:
@@ -214,7 +227,123 @@ class Postgres(Interface):
         fields["_count"] = int(raw["count"])
         return fields
 
+    def _get_raw(self, name, connection):
+        valid = Datetime()
+        sql = self._render_sql(
+            [
+                "UPDATE {}",
+                "SET status = %s",
+                "WHERE _id = (",
+                "  SELECT _id",
+                "  FROM {}",
+                "  WHERE valid <= %s",
+                "  AND status != %s",
+                "  ORDER BY _created ASC",
+                "  FOR UPDATE SKIP LOCKED",
+                "  LIMIT 1"
+                ")",
+                "RETURNING",
+                "  _id,",
+                "  body,",
+                "  status,",
+                "  count,",
+                "  valid,",
+                "  _created,",
+                "  _updated"
+            ],
+            name,
+            name
+        )
+
+        sql_vars = [
+            self.Status.PROCESSING,
+            valid,
+            self.Status.PROCESSING
+        ]
+
+        try:
+            with connection.transaction():
+                with self.cursor(name, connection) as cursor:
+                    cursor.execute(sql, sql_vars)
+                    raw = cursor.fetchone()
+
+        except psycopg.errors.UndefinedTable:
+            raw = None
+
+        return raw
+
     def _recv(self, name, connection, **kwargs):
+        _id = body = raw = None
+        timeout = kwargs.get('timeout', None) or 0.0
+
+        raw = self._get_raw(name, connection)
+        if not raw:
+            with self.cursor(name, connection) as cursor:
+                cursor.execute(self._render_sql(
+                    "LISTEN {}",
+                    self._render_pubsub_name(name)
+                ))
+
+            s = select.select([connection], [], [], timeout)
+            if s[0]:
+                raw = self._get_raw(name, connection)
+
+            # this only works on psycopg 3.2+ which is still in development as
+            # of 2024-02-01
+            # for notify in connection.notifies(timeout=timeout, stop_after=1):
+            #     pout.v(notify)
+
+
+#         from psycopg.generators import notifies
+#             ns = connection.wait(notifies(connection.pgconn), timeout=timeout)
+#             pout.v(ns)
+#             if ns:
+#                 raw = self._get_raw(name, connection)
+#                 pout.v(raw)
+
+
+
+
+
+
+#             select.select([connection], [], [], timeout)
+#             connection.poll()
+#             notify = connection.notifies.pop().payload
+#             pout.v(notify)
+
+#                 raw = self._get_raw(name, connection)
+#                 pout.v(raw)
+
+        if raw:
+            _id = raw["_id"]
+            body = raw["body"]
+
+#             while count <= timeout:
+#                 now = time.time_ns()
+# 
+#                 try:
+#                     raw = self._get_raw(name, connection)
+# 
+#                 except psycopg.errors.UndefinedTable:
+#                     pass
+# 
+#                 finally:
+#                     if raw:
+#                         _id = raw["_id"]
+#                         body = raw["body"]
+#                         break
+# 
+#                     else:
+#                         count += 0.1
+#                         if count < timeout:
+#                             time.sleep(0.1)
+
+        return _id, body, raw
+
+
+
+
+    def x_recv(self, name, connection, **kwargs):
         _id = body = raw = None
         timeout = kwargs.get('timeout', None) or 0.0
         valid = Datetime()

@@ -4,8 +4,11 @@ import logging
 import sys
 import logging
 
-
-logging.basicConfig(format="[%(levelname).1s] %(message)s", level=logging.DEBUG, stream=sys.stdout)
+logging.basicConfig(
+    format="[%(levelname).1s] %(message)s",
+    level=logging.DEBUG,
+    stream=sys.stdout
+)
 logger = logging.getLogger('boto3')
 logger.setLevel(logging.WARNING)
 logger = logging.getLogger('botocore')

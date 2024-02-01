@@ -34,7 +34,8 @@ tests = [
   "testdata"
 ]
 postgres = [
-  "psycopg"
+  "psycopg",
+  "psycopg_pool"
 ]
 sqs = [
   "boto3"
