@@ -103,8 +103,11 @@ class Interface(InterfaceABC):
 
         this will set the raw db connection to self.connection
         """
-        if self.connected: return self.connected
-        if connection_config: self.connection_config = connection_config
+        if self.connected:
+            return self.connected
+
+        if connection_config:
+            self.connection_config = connection_config
 
         try:
             self.connected = False
@@ -121,26 +124,23 @@ class Interface(InterfaceABC):
         """
         close an open connection
         """
-        if not self.connected: return;
+        if not self.connected:
+            return;
 
         self._close()
         self.connected = False
         self.log(f"Closed Connection to {self.__class__.__name__} interface")
 
     @contextmanager
-    def connection(self, connection=None, **kwargs):
+    def connection(self, name, fields=None, connection=None, **kwargs):
         try:
-            if connection:
-                yield connection
+            if not connection:
+                if not self.connected:
+                    self.connect()
 
-            else:
-                if not self.connected: self.connect()
-                try:
-                    connection = self.get_connection()
-                    yield connection
+                connection = self.get_connection()
 
-                except:
-                    raise
+            yield connection
 
         except Exception as e:
             self.raise_error(e)
@@ -200,10 +200,10 @@ class Interface(InterfaceABC):
         if not fields:
             raise ValueError("No fields to send")
 
-        with self.connection(**kwargs) as connection:
+        with self.connection(name, fields=fields, **kwargs) as connection:
+            kwargs["connection"] = connection
             _id, raw = self._send(
                 name=name,
-                connection=connection,
                 body=self.fields_to_body(fields),
                 **kwargs
             )
@@ -216,8 +216,9 @@ class Interface(InterfaceABC):
         :returns: int, a rough count of the messages in the queue, this is
             backend dependent and might not be completely accurate
         """
-        with self.connection(**kwargs) as connection:
-            return int(self._count(name, connection=connection))
+        with self.connection(name, **kwargs) as connection:
+            kwargs["connection"] = connection
+            return int(self._count(name, **kwargs))
 
     def body_to_fields(self, body):
         """This will prepare the body returned from the backend to be passed
@@ -282,10 +283,10 @@ class Interface(InterfaceABC):
             underscore), it will return None if it failed to fetch (ie, timeout
             or error)
         """
-        with self.connection(**kwargs) as connection:
+        with self.connection(name, **kwargs) as connection:
+            kwargs["connection"] = connection
             _id, body, raw = self._recv(
                 name,
-                connection=connection,
                 timeout=timeout,
                 **kwargs
             )
@@ -317,8 +318,9 @@ class Interface(InterfaceABC):
             additional fields that the backend will most likely need to ack the
             message
         """
-        with self.connection(**kwargs) as connection:
-            self._ack(name, connection=connection, fields=fields)
+        with self.connection(name, fields=fields, **kwargs) as connection:
+            kwargs["connection"] = connection
+            self._ack(name, fields=fields, **kwargs)
             self.log("Message {} acked from {}", fields["_id"], name)
 
     def release(self, name, fields, **kwargs):
@@ -331,7 +333,8 @@ class Interface(InterfaceABC):
             additional fields that the backend will most likely need to release
             the message
         """
-        with self.connection(**kwargs) as connection:
+        with self.connection(name, fields=fields, **kwargs) as connection:
+            kwargs["connection"] = connection
             delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
             count = fields.get("_count", 0)
 
@@ -354,9 +357,9 @@ class Interface(InterfaceABC):
 
             self._release(
                 name,
-                connection=connection,
                 fields=fields,
-                delay_seconds=delay_seconds
+                delay_seconds=delay_seconds,
+                **kwargs
             )
             self.log(
                 "Message {} released back to {} count {}, with delay {}s",
@@ -372,8 +375,9 @@ class Interface(InterfaceABC):
 
         :param name: str, the queue name to clear
         """
-        with self.connection(**kwargs) as connection:
-            self._clear(name, connection=connection)
+        with self.connection(name, **kwargs) as connection:
+            kwargs["connection"] = connection
+            self._clear(name, **kwargs)
             self.log("Messages cleared from {}", name)
 
     def unsafe_delete(self, name, **kwargs):
@@ -381,8 +385,9 @@ class Interface(InterfaceABC):
 
         :param name: str, the queue name to delete
         """
-        with self.connection(**kwargs) as connection:
-            self._delete(name, connection=connection)
+        with self.connection(name, **kwargs) as connection:
+            kwargs["connection"] = connection
+            self._delete(name, **kwargs)
             self.log("Queue {} deleted", name)
 
     def raise_error(self, e):

@@ -181,9 +181,17 @@ class TestCase(testdata.TestCase):
         type(self).queues.append(name)
         return name
 
-    def get_message_class(self, name=None, interface=None, config=None):
+    def get_message_class(
+        self,
+        name=None,
+        interface=None,
+        config=None,
+        target=None
+    ):
         name = self.get_name(name)
         inter = self.get_interface(config=config, interface=interface)
+        if not target:
+            target = Message.target
 
         return type(
             NamingConvention(name).camelcase(),
@@ -191,6 +199,7 @@ class TestCase(testdata.TestCase):
             dict(
                 name=name,
                 interface=inter,
+                target=target,
                 connection_name=inter.connection_config.name
             ),
         )
@@ -202,18 +211,8 @@ class TestCase(testdata.TestCase):
         return self.get_message_class(
             name=name,
             interface=interface,
-            config=config
+            config=config,
         )(**fields)
-
-    def get_imessage(self, name=None, interface=None, **fields):
-        name = name or self.get_name()
-        interface = interface or self.get_interface()
-        fields = fields or self.get_fields()
-        return interface.message_class(
-            name=name,
-            interface=interface,
-            fields=fields,
-        )
 
     def get_fields(self, **fields):
         if not fields:

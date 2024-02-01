@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
 from contextlib import contextmanager
 import re
 import itertools
@@ -34,21 +33,23 @@ class Region(String):
 
 
 class RefreshableSession(boto3.Session):
-    """Boto Session wrapper which can use a refreshable session, this allows role
-    assumption to automatically refresh without the interface having to do anything
+    """Boto Session wrapper which can use a refreshable session, this allows
+    role assumption to automatically refresh without the interface having to do
+    anything
 
     :Example:
         session = RefreshableSession(connection_config)
 
-        # we now can cache this client object without worrying about expiring credentials
+        # we now can cache this client object without worrying about expiring
+        # credentials
         client = session.client("s3")
 
     this is based off of this: https://stackoverflow.com/q/63724485
     """
     def __init__(self, connection_config):
         """
-        :param connection_config: dict, this is the connection dict passed to the
-            interface, it should be just passed to this
+        :param connection_config: dict, this is the connection dict passed to
+            the interface, it should be just passed to this
         """
         self.connection_config = connection_config
 
@@ -80,7 +81,10 @@ class RefreshableSession(boto3.Session):
 
         session = boto3.Session(
             region_name=region,
-            profile_name=self.connection_config.options.get("profile_name", None),
+            profile_name=self.connection_config.options.get(
+                "profile_name",
+                None
+            ),
         )
 
         session_ttl = self.connection_config.options.get("session_ttl", 3600)
@@ -132,7 +136,8 @@ class SQS(Interface):
     _connection = None
 
     def _connect(self, connection_config):
-        self.connection_config.options['vtimeout_max'] = 43200 # 12 hours max (from Amazon)
+        # 12 hours max (from Amazon)
+        self.connection_config.options['vtimeout_max'] = 43200
 
         region = Region(self.connection_config.options.get('region', ''))
         self.connection_config.options['region'] = region
@@ -142,7 +147,8 @@ class SQS(Interface):
         boto_kwargs = {}
         for opt in self.connection_config.options:
             if opt.startswith("boto_"):
-                boto_kwargs[opt.replace("boto_", "")] = self.connection_config.options[opt]
+                v = self.connection_config.options[opt]
+                boto_kwargs[opt.replace("boto_", "")] = v
         if boto_kwargs:
             self.log(f"SQS using boto kwargs: {boto_kwargs}")
 
@@ -172,7 +178,8 @@ class SQS(Interface):
         Specifically, this warning:
 
             ResourceWarning: unclosed <ssl.SSLSocket ...
-            ResourceWarning: Enable tracemalloc to get the object allocation tracebac
+            ResourceWarning: Enable tracemalloc to get the object allocation
+                traceback
 
         see also:
             https://github.com/boto/boto3/issues/454
@@ -197,9 +204,12 @@ class SQS(Interface):
         vtimeout = options.get('max_timeout')
         if vtimeout:
             # if not string fails with:
-            # Invalid type for parameter Attributes.VisibilityTimeout, value: 3600,
+            # Invalid type for parameter Attributes.VisibilityTimeout, value:
+            #    3600,
             # type: <type 'int'>, valid types: <type 'basestring'>
-            attrs["VisibilityTimeout"] = String(min(vtimeout, options["vtimeout_max"]))
+            attrs["VisibilityTimeout"] = String(
+                min(vtimeout, options["vtimeout_max"])
+            )
 
         for k, v in itertools.chain(options.items(), kwargs.items()):
             if re.match("^[A-Z][a-zA-Z]+$", k):
@@ -218,7 +228,12 @@ class SQS(Interface):
                 yield q
 
             except ClientError as e:
-                if self._is_client_error_match(e, ["AWS.SimpleQueueService.NonExistentQueue"]):
+                if (
+                    self._is_client_error_match(
+                        e,
+                        ["AWS.SimpleQueueService.NonExistentQueue"]
+                    )
+                ):
                     if kwargs.get("create_queue", True):
                         attrs = self.get_attrs(**kwargs)
                         q = connection.create_queue(
@@ -239,7 +254,8 @@ class SQS(Interface):
                 self._close_client(q.meta.client)
 
     def fields_to_body(self, fields):
-        """This base64 encodes the fields because SQS expects a string, not bytes
+        """This base64 encodes the fields because SQS expects a string, not
+        bytes
 
         https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs/queue/send_message.html
 
@@ -254,11 +270,17 @@ class SQS(Interface):
             delay_seconds = kwargs.get('delay_seconds', 0)
             if delay_seconds > 900:
                 # https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_SendMessage.html
-                self.log("delay_seconds({}) cannot be greater than 900", delay_seconds, level="warning")
+                self.warning(
+                    "delay_seconds({}) cannot be greater than 900",
+                    delay_seconds,
+                )
                 delay_seconds = 900
 
             # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.send_message
-            receipt = q.send_message(MessageBody=body, DelaySeconds=delay_seconds)
+            receipt = q.send_message(
+                MessageBody=body,
+                DelaySeconds=delay_seconds
+            )
             return receipt["MessageId"], receipt
 
     def _count(self, name, connection, **kwargs):
@@ -273,7 +295,12 @@ class SQS(Interface):
                 q.purge()
 
             except ClientError as e:
-                if not self._is_client_error_match(e, ["AWS.SimpleQueueService.PurgeQueueInProgress"]):
+                if (
+                    not self._is_client_error_match(
+                        e,
+                        ["AWS.SimpleQueueService.PurgeQueueInProgress"]
+                    )
+                ):
                     raise
 
     def _delete(self, name, connection, **kwargs):
@@ -282,7 +309,8 @@ class SQS(Interface):
                 q.delete()
 
     def body_to_fields(self, body):
-        """Before sending body to parent's body_to_fields() it will base64 decode it
+        """Before sending body to parent's body_to_fields() it will base64
+        decode it
 
         :param body: str, the body returned from the backend
         """
@@ -316,6 +344,7 @@ class SQS(Interface):
 
             if timeout:
                 kwargs["WaitTimeSeconds"] = timeout
+
             if vtimeout:
                 kwargs["VisibilityTimeout"] = min(
                     vtimeout,

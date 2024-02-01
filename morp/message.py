@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
 import os
 from contextlib import contextmanager
 import logging
@@ -47,8 +46,8 @@ class Message(object):
     """The queue name, see .get_name()"""
 
     classpath_key = "_message_classpath"
-    """The key that will be used to hold the Message's child class's full classpath,
-    see .hydrate()"""
+    """The key that will be used to hold the Message's child class's full
+    classpath, see .hydrate()"""
 
     @classproperty
     def interface(cls):
@@ -79,7 +78,13 @@ class Message(object):
         return key in self.fields
 
     def send(self, **kwargs):
-        """send the message using the configured interface for this class"""
+        """send the message using the configured interface for this class
+
+        :param **kwargs:
+            - delay_seconds: int, how many seconds before the message can be
+                processed. The max value is interface specific, (eg, it can only
+                be 900s max (15 minutes) per SQS docs)
+        """
         queue_off = environ.DISABLED
         name = self.get_name()
         fields = self.to_interface()
@@ -94,15 +99,17 @@ class Message(object):
                 "', '".join(fields.keys()),
                 name
             ))
-            self.from_interface(self.interface.send(name=name, fields=fields, **kwargs))
+            self.from_interface(
+                self.interface.send(name=name, fields=fields, **kwargs)
+            )
 
-    def send_later(self, delay_seconds, **kwargs):
-        """Send the message after delay_seconds
-
-        :param delay_seconds: int, up to 900 (15 minutes) per SQS docs (interface specific)
-        """
-        kwargs["delay_seconds"] = delay_seconds
-        return self.send(**kwargs)
+#     def send_later(self, delay_seconds, **kwargs):
+#         """Send the message after delay_seconds
+# 
+#         :param delay_seconds: int, up to 900 (15 minutes) per SQS docs (interface specific)
+#         """
+#         kwargs["delay_seconds"] = delay_seconds
+#         return self.send(**kwargs)
 
     @classmethod
     def get_name(cls):
@@ -123,21 +130,21 @@ class Message(object):
 
         Usually you'll want to use .handle(), since that will automatically call
         the message's .target() method, but if you want to do something custom
-        with the message then you can use this method by itself
+        with the message then you can call this method directly
 
         :Example:
             with Message.recv() as m:
                 print(m.fields)
 
-        :param block: bool, if True this will block until it receives a message or
-            until timeout has passed
+        :param block: bool, if True this will block until it receives a message
         :param **kwargs:
             * timeout: int, how long to wait before yielding None
         :returns: generator<Message>
         """
         if block:
             m = None
-            kwargs.setdefault('timeout', 20) # 20 is the max long polling timeout per Amazon
+            # 20 is the max long polling timeout per Amazon
+            kwargs.setdefault('timeout', 20)
             while not m:
                 with cls.recv_for(**kwargs) as m:
                     if m:
@@ -149,48 +156,59 @@ class Message(object):
                 if m:
                     yield m
 
-
     @classmethod
     @contextmanager
     def recv_for(cls, timeout, **kwargs):
         """try and receive a message, return None if a message is not received
         within timeout
 
-        This is a semi-internal method, you'll notice both .recv() and .handle()
-        use this method. It attempts to get a message and will ack or release the
-        message depending on how .target() did
+        Internal method, you'll notice .recv() calls this method. This method
+        attempts to get a message and will ack or release the message depending
+        on what .target() did
 
         :param timeout: float|int, how many seconds before yielding None
-        :returns: generator<Message>
+        :returns: generator[Message]
         """
         i = cls.interface
         name = cls.get_name()
         ack_on_recv = kwargs.pop('ack_on_recv', False)
-        logger.debug("Waiting to receive on {} for {} seconds".format(name, timeout))
-        fields = i.recv(name, timeout=timeout, **kwargs)
-        if fields:
-            try:
-                yield cls.hydrate(fields)
+        logger.debug(
+            "Waiting to receive on {} for {} seconds".format(name, timeout)
+        )
 
-            except ReleaseMessage as e:
-                i.release(name, fields, delay_seconds=e.delay_seconds)
+        with i.connection(name, **kwargs) as connection:
+            kwargs["connection"] = connection
 
-            except AckMessage as e:
-                i.ack(name, fields)
+            fields = i.recv(name, timeout=timeout, **kwargs)
+            if fields:
+                try:
+                    yield cls.hydrate(fields)
 
-            except Exception as e:
-                if ack_on_recv:
-                    i.ack(name, fields)
+                except ReleaseMessage as e:
+                    i.release(
+                        name,
+                        fields,
+                        delay_seconds=e.delay_seconds,
+                        **kwargs
+                    )
+
+                except AckMessage as e:
+                    i.ack(name, fields, **kwargs)
+
+                except Exception as e:
+                    if ack_on_recv:
+                        i.ack(name, fields, **kwargs)
+
+                    else:
+                        i.release(name, fields, **kwargs)
+
+                    raise
+
                 else:
-                    i.release(name, fields)
-
-                raise
+                    i.ack(name, fields, **kwargs)
 
             else:
-                i.ack(name, fields)
-
-        else:
-            yield None
+                yield None
 
     @classmethod
     def handle(cls, count=0, **kwargs):
@@ -198,26 +216,37 @@ class Message(object):
         message's target() method
 
         :Example:
-            Message.handle(10) # handle 10 messages by consuming them and calling .target()
+            # handle 10 messages by consuming them and calling .target()
+            Message.handle(10)
 
         :param count: int, if you only want to handle N messages, pass in count
-        :param **kwargs: any other params will get passed to underlying recv methods
+        :param **kwargs: any other params will get passed to underlying recv
+            methods
         """
         max_count = count
         count = 0
         while not max_count or count < max_count:
             with cls.recv(**kwargs) as m:
-                m.target()
                 count += 1
+
+                r = m.target()
+
+                logger.debug("Handled {}/{}".format(
+                    count,
+                    max_count if max_count else "Unlimited"
+                ))
+
+                if r is False:
+                    raise ReleaseMessage()
 
     @classmethod
     def create(cls, *args, **kwargs):
         """create an instance of cls with the passed in fields and send it off
 
-        Since this passed *args and **kwargs directly to .__init__, you can override
-        the .__init__ method and customize it and this method will inherit the
-        child class's changes. And the signature of this method should always match
-        .__init__
+        Since this passed *args and **kwargs directly to .__init__, you can
+        override the .__init__ method and customize it and this method will
+        inherit the child class's changes. And the signature of this method
+        should always match .__init__
 
         :param *args: list[Any], passed directly to .__init__
         :param **kwargs: dict[str, Any], passed directly to .__init__
@@ -234,7 +263,8 @@ class Message(object):
 
     @classmethod
     def count(cls):
-        """how many messages total (approximately) are in the whole message queue"""
+        """how many messages total (approximately) are in the whole message
+        queue"""
         n = cls.get_name()
         return cls.interface.count(n)
 
@@ -251,8 +281,8 @@ class Message(object):
 
     @classmethod
     def hydrate(cls, fields):
-        """This is used by the interface to populate an instance with information
-        received from the interface
+        """This is used by the interface to populate an instance with
+        information received from the interface
 
         :param imessage: InterfaceMessage, the message freshly received from the
             interface, see Interface.create_imessage()
@@ -260,7 +290,8 @@ class Message(object):
         message_class = cls
         if cls is Message:
             # When a generic Message instance is used to consume messages it
-            # will use the passed in classpath to create the correct Message child
+            # will use the passed in classpath to create the correct Message
+            # child
             message_class = cls.get_class(fields[cls.classpath_key])
 
         instance = message_class()
@@ -288,26 +319,30 @@ class Message(object):
         self.fields.update(fields)
 
     def target(self):
-        """This method will be called from handle() and can handle any processing
-        of the message, it should be defined in the child classes"""
+        """This method will be called from handle() and can handle any
+        processing of the message, it should be defined in the child classes"""
         raise NotImplementedError()
 
-    def ack(self):
+    def ack(self, **kwargs):
         """Acknowledge this message has been processed"""
-        self.interface.ack(self.get_name(), self.to_interface())
+        self.interface.ack(self.get_name(), self.to_interface(), **kwargs)
 
     def release(self, **kwargs):
-        """Release this message back to the interface so another message instance
-        can pick it up
+        """Release this message back to the interface so another message
+        instance can pick it up
+
+        :param **kwargs:
+            - delay_seconds: int, how many seconds before the message can be
+                processed again. The max value is interface specific
         """
         self.interface.release(self.get_name(), self.to_interface(), **kwargs)
 
-    def release_later(self, delay_seconds):
-        """If you want to release the message and not have it be visible for some
-        amount of time
-
-        :param delay_seconds: int, how many seconds before the message can be
-            processed again. The max value is interface specific
-        """
-        return self.release(delay_seconds=delay_seconds)
+#     def release_later(self, delay_seconds):
+#         """If you want to release the message and not have it be visible for
+#         some amount of time
+# 
+#         :param delay_seconds: int, how many seconds before the message can be
+#             processed again. The max value is interface specific
+#         """
+#         return self.release(delay_seconds=delay_seconds)
 
