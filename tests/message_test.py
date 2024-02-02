@@ -1,20 +1,11 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals, division, print_function, absolute_import
-import logging
-import sys
 import time
-import os
-import inspect
-import subprocess
-from collections import defaultdict
 
 from morp.compat import *
 from morp import Message
-#from morp.interface.sqs import SQS
-#from morp.interface import get_interfaces
 from morp.exception import ReleaseMessage, AckMessage
 
-from . import TestCase, testdata
+from . import TestCase
 
 
 class MessageTest(TestCase):
@@ -31,7 +22,8 @@ class MessageTest(TestCase):
         self.assertEqual(4, m2.bar)
 
     def test_fields(self):
-        """just make sure defined class properties don't end up in the fields dict"""
+        """just make sure defined class properties don't end up in the fields
+        dict"""
         m = self.get_message()
         type(m).foobar = 1
         m.foobar = 2
@@ -85,7 +77,7 @@ class MessageTest(TestCase):
 
     def test_send_later(self):
         m = self.get_message()
-        m.send_later(2)
+        m.send(delay_seconds=2)
 
         with m.__class__.recv_for(1) as m2:
             self.assertEqual(None, m2)
@@ -131,7 +123,7 @@ class MessageTest(TestCase):
     def test_backoff(self):
         m = self.get_message(
             config=self.get_config(backoff_multiplier=1, backoff_amplifier=1),
-            foo=testdata.get_int()
+            foo=self.get_int()
         )
         mcls = m.__class__
         m.send()

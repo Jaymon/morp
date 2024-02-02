@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
 import logging
-import sys
 from contextlib import contextmanager
-import base64
-import datetime
 import json
 
 from datatypes import LogMixin, Datetime
-import dsnparse
 
 try:
     from cryptography.fernet import Fernet
@@ -15,7 +11,6 @@ except ImportError:
     pass
 
 from ..compat import *
-from ..config import DsnConnection
 from ..exception import InterfaceError
 
 
@@ -335,7 +330,7 @@ class Interface(InterfaceABC):
         """
         with self.connection(name, fields=fields, **kwargs) as connection:
             kwargs["connection"] = connection
-            delay_seconds = max(kwargs.get('delay_seconds', 0), 0)
+            delay_seconds = max(kwargs.pop('delay_seconds', 0), 0)
             count = fields.get("_count", 0)
 
             if delay_seconds == 0:

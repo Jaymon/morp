@@ -363,11 +363,12 @@ class SQS(Interface):
         with self.queue(name, connection) as q:
             # http://stackoverflow.com/questions/14404007/release-a-message-back-to-sqs
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/AboutVT.html
-            # When you [change] a message's visibility timeout, the new timeout applies
-            # only to that particular receipt of the message. ChangeMessageVisibility
-            # does not affect the timeout for the queue or later receipts of the message.
-            # If for some reason you don't delete the message and receive it again,
-            # its visibility timeout is the original value set for the queue.
+            # When you [change] a message's visibility timeout, the new timeout
+            # applies only to that particular receipt of the message.
+            # ChangeMessageVisibility does not affect the timeout for the queue
+            # or later receipts of the message.  If for some reason you don't
+            # delete the message and receive it again, its visibility timeout is
+            # the original value set for the queue.
             delay_seconds = kwargs.get('delay_seconds', 0)
             q.change_message_visibility_batch(Entries=[{
                 "Id": fields["_id"],

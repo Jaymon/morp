@@ -103,14 +103,6 @@ class Message(object):
                 self.interface.send(name=name, fields=fields, **kwargs)
             )
 
-#     def send_later(self, delay_seconds, **kwargs):
-#         """Send the message after delay_seconds
-# 
-#         :param delay_seconds: int, up to 900 (15 minutes) per SQS docs (interface specific)
-#         """
-#         kwargs["delay_seconds"] = delay_seconds
-#         return self.send(**kwargs)
-
     @classmethod
     def get_name(cls):
         """This is what's used as the official queue name, it takes cls.name
@@ -233,7 +225,7 @@ class Message(object):
 
                 logger.debug("Handled {}/{}".format(
                     count,
-                    max_count if max_count else "Unlimited"
+                    max_count if max_count else "Infinity"
                 ))
 
                 if r is False:
@@ -277,7 +269,7 @@ class Message(object):
     def get_class(cls, classpath):
         """wrapper to make it easier to do this in child classes, which seems to
         happen quite frequently"""
-        return ReflectClass.get_class(classpath)
+        return ReflectClass.resolve_class(classpath)
 
     @classmethod
     def hydrate(cls, fields):
@@ -336,13 +328,4 @@ class Message(object):
                 processed again. The max value is interface specific
         """
         self.interface.release(self.get_name(), self.to_interface(), **kwargs)
-
-#     def release_later(self, delay_seconds):
-#         """If you want to release the message and not have it be visible for
-#         some amount of time
-# 
-#         :param delay_seconds: int, how many seconds before the message can be
-#             processed again. The max value is interface specific
-#         """
-#         return self.release(delay_seconds=delay_seconds)
 

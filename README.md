@@ -1,6 +1,6 @@
 # Morp
 
-Send messages without really thinking about it. Can use dropfiles and [Amazon SQS](http://aws.amazon.com/sqs/).
+Simple message processing without really thinking about it. Morp can use dropfiles (simple text files), Postgres, and [Amazon SQS](http://aws.amazon.com/sqs/).
 
 
 ## Installation
@@ -8,6 +8,11 @@ Send messages without really thinking about it. Can use dropfiles and [Amazon SQ
 Use pip to install the latest stable version:
 
     pip install morp
+    
+Morp only supports the dropfiles interface out of the box, you'll need to install certain dependencies depending on what interface you want to use:
+
+    pip install morp[sqs]
+    pip install morp[postgres]
     
 To install the development version:
 
@@ -18,13 +23,21 @@ To install the development version:
 
 Send and receive a `Foo` message.
 
-First, let's set our environment variable to use the dropfile (local files suitable for development and prototyping) interface:
+First, let's set our environment variable to use dropfiles (local files suitable for development and prototyping) interface:
 
-    export MORP_DSN=dropfile:///${TMPDIR}
+    export MORP_DSN=dropfile:${TMPDIR}
 
-Second, let's create a `Foo` Message class:
+Then, let's create three files in our working directory:
+
+* `tasks.py` - We'll define our `Message` classes here.
+* `send.py` - We'll send messages from this script.
+* `recv.py` - We'll receive messages from this script.
+
+
+Let's create our `Message` class in `tasks.py`:
 
 ```python
+# tasks.py
 from morp import Message
 
 class Foo(Message):
@@ -33,22 +46,52 @@ class Foo(Message):
         print(self.fields)
 ```
 
-Third, let's start our message consumer in a shell:
-
-```
-$ morp
-```
-
-Fourth, let's send a message:
+Now, let's flesh out our `recv.py` file:
 
 ```python
-f = Foo()
-f.some_field = 1
-f.some_other_field = 2
-f.send()
+# recv.py
+
+# import our Foo message class from our tasks.py file
+from tasks import Foo
+
+# Foo's handle method will call Foo.target
+Foo.handle()
 ```
 
-That's it!
+And start it up:
+
+```
+$ python recv.py
+```
+
+
+Finally, let's send some messages by fleshing out `send.py`:
+
+```python
+# send.py
+
+from tasks import Foo
+
+# create a message and send it manually
+f = Foo()
+f.some_field = 1
+f.some_other_field = "one"
+f.send()
+
+# quickly send a message
+Foo.create(
+    some_field=2,
+    some_other_field = "two"
+)
+```
+
+And running it (it should send two messages):
+
+```
+$ python send.py
+```
+
+That's it! Our running `recv.py` script should've received the messages we sent when we ran our `send.py` script.
 
 
 ## DSN
@@ -78,9 +121,15 @@ MORP_DSN="sqs://x:x@?serializer=json"
 
 ## Encryption
 
-If you would like to encrypt all your messages, you can pass in a `key` argument to your dsn and Morp will take care of encrypting and decrypting the messages for you transparently.
+You might need to install some dependencies:
 
-Let's just modify our dsn to pass in our key:
+```
+pip install morp[encryption]
+```
+
+If you would like to encrypt all your messages, you can pass in a `key` argument to your DSN and Morp will take care of encrypting and decrypting the messages for you transparently.
+
+Let's just modify our DSN to pass in our key:
 
     sqs://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@?key=jy4XWRuEsrH98RD2VeLG62uVLCPWpdUh
 
@@ -104,7 +153,7 @@ If you would like to have your queue names prefixed with something (eg, `prod` o
 
 ### MORP_DSN
 
-Set this environment variable with your connection dsn so morp can automatically configure itself when the interface is first requested.
+Set this environment variable with your connection DSN so Morp can automatically configure itself when the interface is first requested.
 
 
 ## FAQ
@@ -119,40 +168,3 @@ from morp import Message
 class childMsg(Message):
     name = "custom-queue-name"
 ```
-
-Now, you can have the Morp command line consumer read from that queue instead:
-
-```
-$ morp custom-queue-name
-```
-
-
-## Development
-
-### To work locally
-
-```
-$ git clone https://github.com/Jaymon/morp
-$ cd morp
-```
-
-Optional:
-
-```
-$ python3 - venv .venv && source .venv/bin/activate
-```
-
-Install dependencies with pip `editable` mode
-
-```
-$ pip install -e .
-```
-
-Set up a local sqs using [elasticmq](https://github.com/softwaremill/elasticmq).
-
-And set the appropriate DSN:
-
-```
-$ export MORP_DSN="sqs://x:x@?region=elasticmq&boto_endpoint_url=http://localhost:9324"
-```
-

@@ -4,6 +4,7 @@ import inspect
 import subprocess
 
 import testdata
+from testdata import skipIf
 from datatypes import NamingConvention
 
 from morp.compat import *

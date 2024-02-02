@@ -17,14 +17,11 @@ class Postgres(Interface):
 
     https://github.com/Jaymon/morp/issues/18
     """
-#     _connection = None
-    """Will hold the postgres connection
+    _pool = None
+    """Will hold the postgres connections
 
     https://www.psycopg.org/psycopg3/docs/api/connections.html#the-connection-class
     """
-
-    _pool = None
-
 
     class Status(Enum):
         """The values for the status field in each queue table
@@ -71,6 +68,10 @@ class Postgres(Interface):
 
     @contextmanager
     def connection(self, name, fields=None, connection=None, **kwargs):
+        """We override parent's .connection context manager to use the pool's
+        context manager also so we get all kinds of fancy connection and
+        transaction handling
+        """
         if connection:
             kwargs["connection"] = connection
             with super().connection(name, **kwargs) as connection:
@@ -110,26 +111,33 @@ class Postgres(Interface):
 
         )
 
-#     def get_connection(self):
-#         return self._pool.getconn()
-
     def _close(self):
         self._pool.close()
         self._pool = None
-#         self._connection.close()
-#         self._connection = None
 
     def _render_sql(self, rows, *names):
+        """Given a list of rows and names turn that into valid sql
+
+        Internal method, used to make wrapping names and joining rows of a query
+        a bit easier 
+
+        :param rows: list[str]|str, if a list then all the rows will be joined
+            with a newline
+        :param *names: str, one or more values to be wrapped in quotations and
+            formatted into the string at {} locations
+        :returns: str, the SQL
+        """
         if not isinstance(rows, str):
             rows = "\n".join(rows)
 
-        #table_name = "\"{}\"".format(name)
         return rows.format(*map(lambda n: f"\"{n}\"", names))
 
     def _render_pubsub_name(self, name):
+        """The LISTEN/NOTIFY name that ._send and ._recv uses"""
         return f"{name}_notify"
 
     def _render_index_name(self, name):
+        """The name of the table index"""
         return f"{name}_index"
 
     def _create_table(self, name, connection):
@@ -228,6 +236,17 @@ class Postgres(Interface):
         return fields
 
     def _get_raw(self, name, connection):
+        """Try and grab a row from the db queue
+
+        Internal method. This is broken out from ._recv because ._recv will
+        first try and get a row and if that fails it will subscribe to the 
+        postgres pubsub until timeout expires. If it gets a hit on pubsub it
+        will call this method again looking for a matching row
+
+        :param name: str, the queue name
+        :param connection: Connection
+        :returns: dict|None, the found row
+        """
         valid = Datetime()
         sql = self._render_sql(
             [
@@ -294,115 +313,9 @@ class Postgres(Interface):
             #     pout.v(notify)
 
 
-#         from psycopg.generators import notifies
-#             ns = connection.wait(notifies(connection.pgconn), timeout=timeout)
-#             pout.v(ns)
-#             if ns:
-#                 raw = self._get_raw(name, connection)
-#                 pout.v(raw)
-
-
-
-
-
-
-#             select.select([connection], [], [], timeout)
-#             connection.poll()
-#             notify = connection.notifies.pop().payload
-#             pout.v(notify)
-
-#                 raw = self._get_raw(name, connection)
-#                 pout.v(raw)
-
         if raw:
             _id = raw["_id"]
             body = raw["body"]
-
-#             while count <= timeout:
-#                 now = time.time_ns()
-# 
-#                 try:
-#                     raw = self._get_raw(name, connection)
-# 
-#                 except psycopg.errors.UndefinedTable:
-#                     pass
-# 
-#                 finally:
-#                     if raw:
-#                         _id = raw["_id"]
-#                         body = raw["body"]
-#                         break
-# 
-#                     else:
-#                         count += 0.1
-#                         if count < timeout:
-#                             time.sleep(0.1)
-
-        return _id, body, raw
-
-
-
-
-    def x_recv(self, name, connection, **kwargs):
-        _id = body = raw = None
-        timeout = kwargs.get('timeout', None) or 0.0
-        valid = Datetime()
-        count = 0.0
-
-        with connection.transaction():
-            while count <= timeout:
-                now = time.time_ns()
-
-                sql = self._render_sql(
-                    [
-                        "UPDATE {}",
-                        "SET status = %s",
-                        "WHERE _id = (",
-                        "  SELECT _id",
-                        "  FROM {}",
-                        "  WHERE valid <= %s",
-                        "  AND status != %s",
-                        "  ORDER BY _created ASC",
-                        "  FOR UPDATE SKIP LOCKED",
-                        "  LIMIT 1"
-                        ")",
-                        "RETURNING",
-                        "  _id,",
-                        "  body,",
-                        "  status,",
-                        "  count,",
-                        "  valid,",
-                        "  _created,",
-                        "  _updated"
-                    ],
-                    name,
-                    name
-                )
-
-                sql_vars = [
-                    self.Status.PROCESSING,
-                    valid,
-                    self.Status.PROCESSING
-                ]
-
-                try:
-                    with self.cursor(name, connection) as cursor:
-                        cursor.execute(sql, sql_vars)
-                        raw = cursor.fetchone()
-
-                except psycopg.errors.UndefinedTable:
-                    pass
-
-                finally:
-                    if raw:
-                        _id = raw["_id"]
-                        body = raw["body"]
-                        break
-
-                    else:
-                        count += 0.1
-                        if count < timeout:
-                            time.sleep(0.1)
 
         return _id, body, raw
 
@@ -412,15 +325,15 @@ class Postgres(Interface):
             cursor.execute(sql, [fields["_id"]])
 
     def _release(self, name, connection, fields, **kwargs):
-        _update = Datetime()
+        _updated = Datetime()
         if delay_seconds := kwargs.get('delay_seconds', 0):
             sql = self._render_sql(
                 [
                     "UPDATE {} SET",
                     "  status = %s,",
                     "  count = count + 1,",
-                    "  valid = %s",
-                    "  _update = %s",
+                    "  valid = %s,",
+                    "  _updated = %s",
                     "WHERE _id = %s"
                 ],
                 name
@@ -428,8 +341,8 @@ class Postgres(Interface):
 
             sql_vars = [
                 self.Status.RELEASED.value,
-                _update + delay_seconds,
-                _update,
+                _updated + delay_seconds,
+                _updated,
                 fields["_id"]
             ]
 
@@ -439,7 +352,7 @@ class Postgres(Interface):
                     "UPDATE {} SET",
                     "  status = %s,",
                     "  count = count + 1,",
-                    "  _update = %s",
+                    "  _updated = %s",
                     "WHERE _id = %s"
                 ],
                 name
@@ -447,7 +360,7 @@ class Postgres(Interface):
 
             sql_vars = [
                 self.Status.RELEASED.value,
-                _update,
+                _updated,
                 fields["_id"]
             ]
 
