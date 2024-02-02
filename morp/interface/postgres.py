@@ -20,7 +20,10 @@ class Postgres(Interface):
     _pool = None
     """Will hold the postgres connections
 
-    https://www.psycopg.org/psycopg3/docs/api/connections.html#the-connection-class
+    https://www.psycopg.org/psycopg3/docs/advanced/pool.html
+    https://www.psycopg.org/psycopg3/docs/api/pool.html
+    https://www.psycopg.org/psycopg3/docs/api/connections.html
+    https://www.psycopg.org/psycopg3/docs/basic/install.html#pool-installation
     """
 
     class Status(Enum):
@@ -80,6 +83,8 @@ class Postgres(Interface):
         else:
             self.connect()
 
+            # https://www.psycopg.org/psycopg3/docs/api/connections.html#the-connection-class
+            # https://github.com/psycopg/psycopg/blob/master/psycopg/psycopg/connection.py
             with self._pool.connection() as connection:
                 kwargs["connection"] = connection
                 with super().connection(
@@ -95,6 +100,7 @@ class Postgres(Interface):
         https://www.psycopg.org/psycopg3/docs/api/connections.html
         """
         self._pool = ConnectionPool(
+            # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
             kwargs=dict(
                 dbname=connection_config.path.lstrip("/"),
                 user=connection_config.username,
@@ -211,6 +217,7 @@ class Postgres(Interface):
                 cursor.execute(sql, sql_vars)
                 d = cursor.fetchone()
 
+                # https://www.postgresql.org/docs/current/sql-notify.html
                 cursor.execute(self._render_sql(
                     "NOTIFY {}",
                     self._render_pubsub_name(name)
@@ -248,6 +255,7 @@ class Postgres(Interface):
         :returns: dict|None, the found row
         """
         valid = Datetime()
+        # https://www.postgresql.org/docs/current/sql-select.html
         sql = self._render_sql(
             [
                 "UPDATE {}",
@@ -281,6 +289,7 @@ class Postgres(Interface):
         ]
 
         try:
+            # https://www.psycopg.org/psycopg3/docs/basic/transactions.html
             with connection.transaction():
                 with self.cursor(name, connection) as cursor:
                     cursor.execute(sql, sql_vars)
@@ -298,17 +307,30 @@ class Postgres(Interface):
         raw = self._get_raw(name, connection)
         if not raw:
             with self.cursor(name, connection) as cursor:
+                # https://www.postgresql.org/docs/current/sql-listen.html
                 cursor.execute(self._render_sql(
                     "LISTEN {}",
                     self._render_pubsub_name(name)
                 ))
 
+            # this answer https://stackoverflow.com/a/41649275 pointed me in the
+            # right direction on how to "consume" a message. I could've made
+            # this more complicated by wrapping it in a while loop and
+            # subtracting the elapsed time from timeout until it gets to zero
+            # since receiving the message is no guarrantee it will be able to
+            # consume the message, but it wouldn't have added much except make
+            # it technically more correct since other recv methods already check
+            # for None return values and re-call if no actual message was
+            # received.
+            #
+            # https://www.psycopg.org/docs/advanced.html#asynchronous-notifications
             s = select.select([connection], [], [], timeout)
             if s[0]:
                 raw = self._get_raw(name, connection)
 
             # this only works on psycopg 3.2+ which is still in development as
             # of 2024-02-01
+            # https://www.psycopg.org/psycopg3/docs/api/objects.html#psycopg.Notify
             # for notify in connection.notifies(timeout=timeout, stop_after=1):
             #     pout.v(notify)
 
