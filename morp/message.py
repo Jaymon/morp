@@ -21,6 +21,24 @@ class Message(object):
 
     to add a new message to your application, just subclass this class
 
+    :example:
+        import morp
+
+        class CustomMessage(morp.Message):
+            def target(self):
+                # target will be called when the message is consumed using
+                # the CustomMessage.handle method
+                pass
+
+        m1 = CustomMessage(foo=1, bar="one")
+        m1.send() # m1 is sent with foo and bar fields
+
+        m2 = CustomMessage.create(foo=2, bar="two")
+        # m2 was created and sent with foo and bar fields
+
+        CustomMessage.handle(2)
+        # both m1 and m2 were consumed and their .target methods called
+
     By default, all subclasses will go to the same queue and then when the queue
     is consumed the correct child class will be created and consume the message
     with its .target() method.
@@ -202,6 +220,20 @@ class Message(object):
             else:
                 yield None
 
+
+    @classmethod
+    def handle_iter(cls, count):
+        max_count = count
+        count = 0
+        while not max_count or count < max_count:
+            count += 1
+            logger.debug("Handling {}/{}".format(
+                count,
+                max_count if max_count else "Infinity"
+            ))
+
+            yield count
+
     @classmethod
     def handle(cls, count=0, **kwargs):
         """wait for messages to come in and handle them by calling the incoming
@@ -215,18 +247,9 @@ class Message(object):
         :param **kwargs: any other params will get passed to underlying recv
             methods
         """
-        max_count = count
-        count = 0
-        while not max_count or count < max_count:
+        for x in cls.handle_iter(count):
             with cls.recv(**kwargs) as m:
-                count += 1
-
                 r = m.target()
-
-                logger.debug("Handled {}/{}".format(
-                    count,
-                    max_count if max_count else "Infinity"
-                ))
 
                 if r is False:
                     raise ReleaseMessage()
@@ -284,7 +307,7 @@ class Message(object):
             # When a generic Message instance is used to consume messages it
             # will use the passed in classpath to create the correct Message
             # child
-            message_class = cls.get_class(fields[cls.classpath_key])
+            message_class = cls.get_class(fields.pop(cls.classpath_key))
 
         instance = message_class()
         instance.from_interface(fields)

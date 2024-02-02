@@ -23,92 +23,6 @@ testdata.basic_logging(
 )
 
 
-class Client(object):
-    def __init__(self, data, config):
-        module_info = testdata.create_module(data=data)
-        self.directory = module_info.basedir
-        self.module = module_info.module()
-        self.config = config
-        inter = self.config.interface
-        self.message_classes = []
-
-        clear_names = {}
-        members = inspect.getmembers(self.module, inspect.isclass)
-        for _, message_class in members:
-            if issubclass(message_class, Message):
-                message_class.interface = inter
-                clear_names[message_class.get_name()] = message_class
-                self.message_classes.append(message_class)
-
-        for message_class in clear_names.values():
-            message_class.unsafe_clear()
-
-    def send(self, **fields):
-        return self.message_classes[0].create(fields)
-
-    def recv(self):
-        return self.run(self.message_classes[0].name)
-
-    def environ(self):
-        environ = os.environ
-        environ.update({
-            "MORP_DSN": self.config.dsn,
-        })
-        environ.pop("MORP_DSN_1", None)
-        return environ
-
-    def run(self, name, count=1, **options):
-        python_cmd = String(
-            subprocess.check_output(["which", "python"]).strip()
-        )
-        cmd = "{} -m morp --count={} --directory={} {}".format(
-            python_cmd,
-            count,
-            self.directory,
-            name
-        )
-        expected_ret_code = options.get('code', 0)
-
-        def get_output_str(output):
-            return "\n".join(String(o) for o in output)
-
-        process = None
-        output = []
-        try:
-            process = subprocess.Popen(
-                cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                cwd=os.getcwd(),
-                env=self.environ(),
-            )
-
-            for line in iter(process.stdout.readline, b""):
-                line = line.rstrip()
-                print(line)
-                output.append(line)
-
-            process.wait()
-            if process.returncode != expected_ret_code:
-                raise RuntimeError("cmd returned {} with output: {}".format(
-                    process.returncode,
-                    get_output_str(output)
-                ))
-
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError("cmd returned {} with output: {}".format(
-                e.returncode,
-                e.output
-            ))
-
-        finally:
-            if process:
-                process.stdout.close()
-
-        return get_output_str(output)
-
-
 class TestCase(testdata.TestCase):
 
     interface_class = Dropfile
@@ -129,12 +43,6 @@ class TestCase(testdata.TestCase):
 
             for inter in cls.interfaces:
                 inter.close()
-
-    def get_client(self, data, **kwargs):
-        return Client(
-            data,
-            config=kwargs.get("config", self.get_config()),
-        )
 
     def get_config(self, dsn="", config=None, **options):
         if dsn:
@@ -187,16 +95,18 @@ class TestCase(testdata.TestCase):
         name=None,
         interface=None,
         config=None,
-        target=None
+        target=None,
+        message_class=None
     ):
         name = self.get_name(name)
         inter = self.get_interface(config=config, interface=interface)
-        if not target:
-            target = Message.target
+
+        message_class = message_class or Message
+        target = target or message_class.target
 
         return type(
             NamingConvention(name).camelcase(),
-            (Message,),
+            (message_class,),
             dict(
                 name=name,
                 interface=inter,
@@ -207,12 +117,22 @@ class TestCase(testdata.TestCase):
 
         return orm_class
 
-    def get_message(self, name=None, interface=None, config=None, **fields):
+    def get_message(
+        self,
+        name=None,
+        interface=None,
+        config=None,
+        target=None,
+        message_class=None,
+        **fields
+    ):
         fields = self.get_fields(**fields)
         return self.get_message_class(
             name=name,
             interface=interface,
             config=config,
+            target=target,
+            message_class=message_class
         )(**fields)
 
     def get_fields(self, **fields):
