@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 
 from ..message import Message
-from ..exception import ReleaseMessage, AckMessage
+from ..exception import ReleaseMessage
 
 
 class AsyncMessage(Message):

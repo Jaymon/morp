@@ -2,8 +2,7 @@
 import json
 
 from morp.compat import *
-#from morp.interface.base import InterfaceMessage
-from . import TestCase, testdata
+from . import TestCase
 
 
 class InterfaceMessageTest(TestCase):

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
 
-from .. import TestCase, Client, testdata, skipIf
+from .. import TestCase, skipIf
 
 
 class _InterfaceTest(TestCase):
