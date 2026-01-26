@@ -2,7 +2,7 @@
 import base64
 
 import dsnparse
-from datatypes import ReflectClass
+from datatypes import ReflectName
 from datatypes import property as cachedproperty
 from datatypes.config import Environ
 
@@ -38,7 +38,7 @@ class Connection(object):
 
     @property
     def interface_class(self):
-        interface_class = ReflectClass.resolve_class(self.interface_name)
+        interface_class = ReflectName(self.interface_name).get_class()
         return interface_class
 
     @property

@@ -1,10 +1,24 @@
-version: "3.4"
+# version: "3.4"
+# 
+# services:
+#   database:
+#     # https://hub.docker.com/_/postgres
+#     image: postgres:15
+#     restart: always
+#     env_file:
+#       - .env.local
+# #     volumes:
+# #       - ./cache/postgres/data:/var/lib/postgresql/data
+# #       - ./cache/postgres/initdb.d/extensions.sql:/docker-entrypoint-initdb.d/extensions.sql
+#     ports:
+#       - "5432:5432"
 
 services:
+  # https://docs.docker.com/reference/compose-file/services/
   database:
-    # https://hub.docker.com/_/postgres
-    image: postgres:15
-    restart: always
+    image: postgres:18
+    container_name: morp-dev
+    restart: always # unless-stopped
     env_file:
       - .env.local
 #     volumes:
@@ -12,4 +26,3 @@ services:
 #       - ./cache/postgres/initdb.d/extensions.sql:/docker-entrypoint-initdb.d/extensions.sql
     ports:
       - "5432:5432"
-

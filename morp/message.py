@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import logging
 import datetime
 
-from datatypes import ReflectClass, make_dict, classproperty
+from datatypes import ReflectClass, ReflectName, make_dict, classproperty
 
 from .compat import *
 from .interface import get_interface
@@ -292,7 +292,7 @@ class Message(object):
     def get_class(cls, classpath):
         """wrapper to make it easier to do this in child classes, which seems to
         happen quite frequently"""
-        return ReflectClass.resolve_class(classpath)
+        return ReflectName(classpath).get_class()
 
     @classmethod
     def hydrate(cls, fields):
@@ -321,7 +321,7 @@ class Message(object):
         """
         fields = self.fields
         if self.classpath_key not in fields:
-            fields[self.classpath_key] = ReflectClass.get_classpath(self)
+            fields[self.classpath_key] = ReflectClass(self).classpath
         return fields
 
     def from_interface(self, fields):

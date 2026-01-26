@@ -13,7 +13,7 @@ from . import _InterfaceTest, skipIf
 
 @skipIf(
     (
-        Postgres is None
+        SQS is None
         or not any(
             c for c in find_environ(_InterfaceTest.DSN_ENV_NAME)
             if c.interface_class is SQS

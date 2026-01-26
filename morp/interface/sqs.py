@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from contextlib import contextmanager
 import re
 import itertools
@@ -8,10 +7,13 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.credentials import RefreshableCredentials
 from botocore.session import get_session
-from datatypes import Datetime
+from datatypes import Datetime, logging
 
 from ..compat import *
 from .base import Interface
+
+
+logger = logging.getLogger(__name__)
 
 
 class Region(String):
@@ -150,11 +152,11 @@ class SQS(Interface):
                 v = self.connection_config.options[opt]
                 boto_kwargs[opt.replace("boto_", "")] = v
         if boto_kwargs:
-            self.log(f"SQS using boto kwargs: {boto_kwargs}")
+            logger.debug("SQS using boto kwargs: %s", boto_kwargs)
 
         self._connection = session.resource("sqs", **boto_kwargs)
 
-        self.log("SQS connected to region {}", region)
+        logger.debug("SQS connected to region %s", region)
 
     def get_connection(self):
         return self._connection

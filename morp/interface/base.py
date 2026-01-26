@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
-import logging
 from contextlib import contextmanager
 import json
 
-from datatypes import LogMixin, Datetime
+from datatypes import Datetime, logging
 
 try:
     from cryptography.fernet import Fernet
 except ImportError:
-    pass
+    Fernet = None
 
 from ..compat import *
 from ..exception import InterfaceError
@@ -17,7 +15,7 @@ from ..exception import InterfaceError
 logger = logging.getLogger(__name__)
 
 
-class InterfaceABC(LogMixin):
+class InterfaceABC(object):
     """This abstract base class containing all the methods that need to be
     implemented in a child interface class.
 
@@ -108,7 +106,7 @@ class Interface(InterfaceABC):
             self.connected = False
             self._connect(self.connection_config)
             self.connected = True
-            self.log(f"Connected to {self.__class__.__name__} interface")
+            logger.debug("Connected to %s interface", self.__class__.__name__)
 
         except Exception as e:
             raise self.raise_error(e)
@@ -124,7 +122,9 @@ class Interface(InterfaceABC):
 
         self._close()
         self.connected = False
-        self.log(f"Closed Connection to {self.__class__.__name__} interface")
+        logger.debug(
+            "Closed Connection to %s interface", self.__class__.__name__,
+        )
 
     @contextmanager
     def connection(self, name, fields=None, connection=None, **kwargs):
@@ -158,8 +158,8 @@ class Interface(InterfaceABC):
         key = self.connection_config.key
         if key:
             if Fernet is None:
-                self.warning(
-                    "Cannot encrypt because of missing dependencies"
+                logger.warning(
+                    "Cannot encrypt because of missing dependencies",
                 )
 
             else:
@@ -202,7 +202,12 @@ class Interface(InterfaceABC):
                 body=self.fields_to_body(fields),
                 **kwargs
             )
-            self.log(f"Message {_id} sent to {name} -- {fields}")
+            logger.debug(
+                "Message %s sent to %s -- %s",
+                _id,
+                name,
+                fields,
+            )
             return self.send_to_fields(_id, fields, raw)
 
     def count(self, name, **kwargs):
@@ -228,8 +233,8 @@ class Interface(InterfaceABC):
         key = self.connection_config.key
         if key:
             if Fernet is None:
-                self.warning(
-                    "Skipping decrypt because of missing dependencies"
+                logger.warning(
+                    "Skipping decrypt because of missing dependencies",
                 )
                 ret = body
 
@@ -287,19 +292,19 @@ class Interface(InterfaceABC):
             )
             fields = self.recv_to_fields(_id, body, raw) if body else None
             if fields:
-                self.log_for(
-                    debug=([
-                        "Message {} received from {} -- {}",
+                logger.log_for(
+                    debug=(
+                        "Message %s received from %s -- %s",
                         _id,
                         name,
                         fields
-                    ],),
-                    info=([
-                        "Message {} recceived from {} -- {}",
+                    ),
+                    info=(
+                        "Message %s recceived from %s -- %s",
                         _id,
                         name,
-                        fields.keys()
-                    ],)
+                        fields.keys(),
+                    ),
                 )
 
             return fields
@@ -316,7 +321,7 @@ class Interface(InterfaceABC):
         with self.connection(name, fields=fields, **kwargs) as connection:
             kwargs["connection"] = connection
             self._ack(name, fields=fields, **kwargs)
-            self.log("Message {} acked from {}", fields["_id"], name)
+            logger.debug("Message %s acked from %s", fields["_id"], name)
 
     def release(self, name, fields, **kwargs):
         """release the message back into the queue, this is usually for when
@@ -356,12 +361,12 @@ class Interface(InterfaceABC):
                 delay_seconds=delay_seconds,
                 **kwargs
             )
-            self.log(
-                "Message {} released back to {} count {}, with delay {}s",
+            logger.debug(
+                "Message %s released back to %s count %s, with delay %ss",
                 fields["_id"],
                 name,
                 count,
-                delay_seconds
+                delay_seconds,
             )
 
     def unsafe_clear(self, name, **kwargs):
@@ -373,7 +378,7 @@ class Interface(InterfaceABC):
         with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
             self._clear(name, **kwargs)
-            self.log("Messages cleared from {}", name)
+            logger.debug("Messages cleared from %s", name)
 
     def unsafe_delete(self, name, **kwargs):
         """delete the queue, this removes messages and the queue
@@ -383,7 +388,7 @@ class Interface(InterfaceABC):
         with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
             self._delete(name, **kwargs)
-            self.log("Queue {} deleted", name)
+            logger.debug("Queue %s deleted", name)
 
     def raise_error(self, e):
         """this is just a wrapper to make the passed in exception an
