@@ -137,7 +137,7 @@ class SQS(Interface):
     """
     _connection = None
 
-    def _connect(self, connection_config):
+    async def _connect(self, connection_config):
         # 12 hours max (from Amazon)
         self.connection_config.options['vtimeout_max'] = 43200
 
@@ -158,10 +158,10 @@ class SQS(Interface):
 
         logger.debug("SQS connected to region %s", region)
 
-    def get_connection(self):
+    async def get_connection(self):
         return self._connection
 
-    def _close(self):
+    async def _close(self):
         """closes out the client and gets rid of connection"""
         if self._connection:
             client = self._connection.meta.client
@@ -169,7 +169,7 @@ class SQS(Interface):
 
         self._connection = None
 
-    def _close_client(self, client):
+    async def _close_client(self, client):
         """closes open sessions on client
 
         this code comes from: 
@@ -255,7 +255,7 @@ class SQS(Interface):
             if q:
                 self._close_client(q.meta.client)
 
-    def fields_to_body(self, fields):
+    def _fields_to_body(self, fields):
         """This base64 encodes the fields because SQS expects a string, not
         bytes
 
@@ -264,10 +264,10 @@ class SQS(Interface):
         :param: dict, the fields to send to the backend
         :returns: str, the body, base64 encoded
         """
-        body = super().fields_to_body(fields)
+        body = super()._fields_to_body(fields)
         return String(base64.b64encode(body))
 
-    def _send(self, name, connection, body, **kwargs):
+    async def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as q:
             delay_seconds = kwargs.get('delay_seconds', 0)
             if delay_seconds > 900:
@@ -285,13 +285,13 @@ class SQS(Interface):
             )
             return receipt["MessageId"], receipt
 
-    def _count(self, name, connection, **kwargs):
+    async def _count(self, name, connection, **kwargs):
         ret = 0
         with self.queue(name, connection) as q:
             ret = int(q.attributes.get('ApproximateNumberOfMessages', 0))
         return ret
 
-    def _clear(self, name, connection, **kwargs):
+    async def _clear(self, name, connection, **kwargs):
         with self.queue(name, connection) as q:
             try:
                 q.purge()
@@ -305,21 +305,21 @@ class SQS(Interface):
                 ):
                     raise
 
-    def _delete(self, name, connection, **kwargs):
+    async def _delete(self, name, connection, **kwargs):
         with self.queue(name, connection, create_queue=False) as q:
             if q:
                 q.delete()
 
-    def body_to_fields(self, body):
+    def _body_to_fields(self, body):
         """Before sending body to parent's body_to_fields() it will base64
         decode it
 
         :param body: str, the body returned from the backend
         """
-        return super().body_to_fields(base64.b64decode(body))
+        return super()._body_to_fields(base64.b64decode(body))
 
-    def recv_to_fields(self, _id, body, raw):
-        fields = super().recv_to_fields(_id, body, raw)
+    def _recv_to_fields(self, _id, body, raw):
+        fields = super()._recv_to_fields(_id, body, raw)
 
         # http://boto3.readthedocs.io/en/latest/reference/services/sqs.html#SQS.Queue.receive_messages
         fields["_count"] = int(raw.attributes.get('ApproximateReceiveCount', 1))
@@ -329,7 +329,7 @@ class SQS(Interface):
 
         return fields
 
-    def _recv(self, name, connection, **kwargs):
+    async def _recv(self, name, connection, **kwargs):
         timeout = kwargs.get('timeout', None)
         if timeout is not None:
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-long-polling.html
@@ -361,7 +361,7 @@ class SQS(Interface):
 
             return _id, body, raw
 
-    def _release(self, name, fields, connection, **kwargs):
+    async def _release(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
             # http://stackoverflow.com/questions/14404007/release-a-message-back-to-sqs
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/AboutVT.html
@@ -378,7 +378,7 @@ class SQS(Interface):
                 "VisibilityTimeout": delay_seconds
             }])
 
-    def _ack(self, name, fields, connection, **kwargs):
+    async def _ack(self, name, fields, connection, **kwargs):
         with self.queue(name, connection) as q:
             q.delete_messages(Entries=[
                 {

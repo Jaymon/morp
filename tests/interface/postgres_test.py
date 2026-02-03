@@ -5,7 +5,7 @@ from morp.interface import find_environ
 try:
     from morp.interface.postgres import Postgres
 except ImportError:
-    pass
+    Postgres = None
 
 from . import _InterfaceTest, skipIf
 
@@ -18,7 +18,7 @@ from . import _InterfaceTest, skipIf
             if c.interface_class is Postgres
         )
     ),
-    "Skipping postgres interface because environment not configured"
+    "Skipping postgres interface because environment not configured",
 )
 class InterfaceTest(_InterfaceTest):
     interface_class = Postgres

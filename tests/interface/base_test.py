@@ -5,7 +5,7 @@ from morp.compat import *
 from . import TestCase
 
 
-class InterfaceMessageTest(TestCase):
+class BaseTest(TestCase):
     def test_serializer(self):
         interfaces = [
             self.get_interface(serializer="pickle"),
@@ -16,9 +16,9 @@ class InterfaceMessageTest(TestCase):
 
         for inter in interfaces:
             fields1 = self.get_fields()
-            body = inter.fields_to_body(fields1)
+            body = inter._fields_to_body(fields1)
             self.assertTrue(isinstance(body, bytes))
 
-            fields2 = inter.body_to_fields(body)
+            fields2 = inter._body_to_fields(body)
             self.assertEqualFields(fields1, fields2)
 

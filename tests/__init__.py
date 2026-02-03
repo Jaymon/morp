@@ -23,7 +23,7 @@ testdata.basic_logging(
 )
 
 
-class TestCase(testdata.TestCase):
+class TestCase(testdata.IsolatedAsyncioTestCase):
 
     interface_class = Dropfile
 
@@ -33,16 +33,33 @@ class TestCase(testdata.TestCase):
 
     DSN_ENV_NAME = "MORP_TEST_DSN"
 
-    @classmethod
-    def tearDownClass(cls):
-        # clean up all the queues we made and close all the interfaces
-        if cls.interfaces:
-            inter = cls.interfaces[0]
-            for name in cls.queues:
-                inter.unsafe_delete(name)
+#     @classmethod
+#     def tearDownClass(cls):
+#         # clean up all the queues we made and close all the interfaces
+#         if cls.interfaces:
+#             inter = cls.interfaces[0]
+#             for name in cls.queues:
+#                 inter.unsafe_delete(name)
+# 
+#             for inter in cls.interfaces:
+#                 inter.close()
 
-            for inter in cls.interfaces:
-                inter.close()
+    async def asyncTearDown(self):
+        """clean up all the queues we made and close all the interfaces"""
+        if self.interfaces:
+            inter = self.interfaces[0]
+            for name in self.queues:
+                await inter.unsafe_delete(name)
+
+            for inter in self.interfaces:
+                await inter.close()
+
+        type(self).queues = []
+        type(self).interfaces = []
+
+        # close any global interfaces also
+        #for _, inter in get_interfaces().items():
+        #    await inter.close()
 
     def get_config(self, dsn="", config=None, **options):
         if dsn:
@@ -73,10 +90,10 @@ class TestCase(testdata.TestCase):
         """get a connected interface"""
         config = self.get_config(config=config, **options)
         inter = interface or self.interface_class(config)
-        inter.connect()
+        #await inter.connect()
         #type(self).interfaces[""].append(inter)
         type(self).interfaces.append(inter)
-        self.assertTrue(inter.connected)
+        #self.assertTrue(inter.connected)
         return inter
 
     def get_encrypted_interface(self, config=None, interface=None, **options):
@@ -102,7 +119,7 @@ class TestCase(testdata.TestCase):
         inter = self.get_interface(config=config, interface=interface)
 
         message_class = message_class or Message
-        target = target or message_class.target
+        target = target or message_class.handle
 
         return type(
             NamingConvention(name).camelcase(),
@@ -110,8 +127,8 @@ class TestCase(testdata.TestCase):
             dict(
                 name=name,
                 interface=inter,
-                target=target,
-                connection_name=inter.connection_config.name
+                handle=target,
+                connection_name=inter.connection_config.name,
             ),
         )
 

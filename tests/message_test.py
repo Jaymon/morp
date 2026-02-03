@@ -9,7 +9,7 @@ from . import TestCase
 
 
 class MessageTest(TestCase):
-    def test_create(self):
+    def test___init__(self):
         m = self.get_message(foo=1, bar=2)
         self.assertEqual(1, m.foo)
         self.assertEqual(2, m.bar)
@@ -29,75 +29,75 @@ class MessageTest(TestCase):
         m.foobar = 2
         self.assertFalse("foobar" in m.fields)
 
-    def test_release_1(self):
+    async def test_release_1(self):
         m = self.get_message()
         mcls = m.__class__
-        m.send()
+        await m.send()
 
         with self.assertRaises(RuntimeError):
-            with mcls.recv() as m2:
+            async with mcls.recv() as m2:
                 raise RuntimeError()
 
-        with mcls.recv() as m2:
+        async with mcls.recv() as m2:
             self.assertEqual(m2.foo, m.foo)
 
-    def test_release_message(self):
+    async def test_release_message(self):
         m = self.get_message()
         mcls = m.__class__
-        m.send()
+        await m.send()
 
-        with mcls.recv() as m2:
+        async with mcls.recv() as m2:
             raise ReleaseMessage(2)
 
-        with mcls.recv_for(1) as m2:
+        async with mcls.recv_for(1) as m2:
             self.assertEqual(None, m2)
 
-        with mcls.recv_for(1) as m2:
+        async with mcls.recv_for(1) as m2:
             self.assertEqual(m.foo, m2.foo)
 
-    def test_ack_message(self):
+    async def test_ack_message(self):
         m = self.get_message()
         mcls = m.__class__
-        m.send()
+        await m.send()
 
-        with mcls.recv() as m2:
+        async with mcls.recv() as m2:
             raise AckMessage()
 
-        self.assertEqual(0, m.interface.count(name=m.get_name()))
+        self.assertEqual(0, await m.interface.count(name=m.get_name()))
 
-        with mcls.recv_for(timeout=0.1) as m2:
+        async with mcls.recv_for(timeout=0.1) as m2:
             self.assertEqual(None, m2)
 
-    def test_send_recv(self):
+    async def test_send_recv(self):
         m = self.get_message()
-        m.send()
+        await m.send()
 
-        with m.__class__.recv() as m2:
+        async with m.__class__.recv() as m2:
             self.assertEqualFields(m.fields, m2.fields)
 
-    def test_send_later(self):
+    async def test_send_later(self):
         m = self.get_message()
-        m.send(delay_seconds=2)
+        await m.send(delay_seconds=2)
 
-        with m.__class__.recv_for(1) as m2:
+        async with m.__class__.recv_for(1) as m2:
             self.assertEqual(None, m2)
 
         time.sleep(1)
 
-        with m.__class__.recv_for(1) as m2:
+        async with m.__class__.recv_for(1) as m2:
             self.assertEqualFields(m.fields, m2.fields)
 
-    def test_recv_block_success(self):
+    async def test_recv_block_success(self):
         m = self.get_message()
-        m.send()
+        await m.send()
 
-        with m.__class__.recv() as m2:
+        async with m.__class__.recv() as m2:
             self.assertEqualFields(m.fields, m2.fields)
 
-    def test_recv_block_error(self):
+    async def test_recv_block_error(self):
         m = self.get_message()
         mcls = m.__class__
-        m.send()
+        await m.send()
 
         kwargs = {
             "vtimeout": 1,
@@ -105,38 +105,38 @@ class MessageTest(TestCase):
         }
 
         with self.assertRaises(RuntimeError):
-            with mcls.recv(**kwargs) as m2:
+            async with mcls.recv(**kwargs) as m2:
                 raise RuntimeError()
 
         time.sleep(1.2)
 
         kwargs["ack_on_recv"] = True
         with self.assertRaises(RuntimeError):
-            with mcls.recv(**kwargs) as m2:
+            async with mcls.recv(**kwargs) as m2:
                 raise RuntimeError()
 
-        self.assertEqual(0, m.interface.count(name=m.get_name()))
+        self.assertEqual(0, await m.interface.count(name=m.get_name()))
 
-        with mcls.recv_for(timeout=0.1) as m2:
+        async with mcls.recv_for(timeout=0.1) as m2:
             self.assertEqual(None, m2)
 
-    def test_backoff(self):
+    async def test_backoff(self):
         m = self.get_message(
             config=self.get_config(backoff_multiplier=1, backoff_amplifier=1),
             foo=self.get_int()
         )
         mcls = m.__class__
-        m.send()
+        await m.send()
 
         count = 0
         for x in range(2):
             with self.assertRaises(RuntimeError):
-                with mcls.recv() as m2:
+                async with mcls.recv() as m2:
                     self.assertGreater(m2.fields["_count"], count)
                     count = m2.fields["_count"]
                     raise RuntimeError()
 
-        with mcls.recv() as m2:
+        async with mcls.recv() as m2:
             self.assertGreater(m2.fields["_count"], count)
             self.assertEqual(m2.foo, m.foo)
 

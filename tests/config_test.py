@@ -59,7 +59,12 @@ class ConnectionTest(TestCase):
                 )
             ),
             (
-                'module.path.to.Interface://example.com:4161?foo=bar&bar=che&max_timeout=60&backoff_multiplier=1#name',
+                (
+                    "module.path.to.Interface"
+                    "://example.com:4161"
+                    "?foo=bar&bar=che&max_timeout=60&backoff_multiplier=1"
+                    "#name"
+                ),
                 dict(
                     hosts=[('example.com', 4161)],
                     interface_name='module.path.to.Interface',

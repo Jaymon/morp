@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import json
 
 from datatypes import Datetime, logging
@@ -24,10 +25,10 @@ class InterfaceABC(object):
     out from Interface just for convenience of seeing all the methods that must
     be implemented
     """
-    def _connect(self, connection_config):
+    async def _connect(self, connection_config):
         raise NotImplementedError()
 
-    def get_connection(self):
+    async def _get_connection(self):
         """Returns a connection
 
         usually the body of this is as simple as `return self._connection` but
@@ -38,10 +39,10 @@ class InterfaceABC(object):
         """
         raise NotImplementedError()
 
-    def _close(self):
+    async def _close(self):
         raise NotImplementedError()
 
-    def _send(self, name, connection, body, **kwargs):
+    async def _send(self, name, connection, body, **kwargs):
         """similar to self.send() but this takes a body, which is the message
         completely encoded and ready to be sent by the backend
 
@@ -50,7 +51,7 @@ class InterfaceABC(object):
         """
         raise NotImplementedError()
 
-    def _count(self, name, connection, **kwargs):
+    async def _count(self, name, connection, **kwargs):
         """count how many messages are currently in the queue
 
         :returns: int, the rough count, depending on the backend this might not
@@ -58,7 +59,7 @@ class InterfaceABC(object):
         """
         raise NotImplementedError()
 
-    def _recv(self, name, connection, **kwargs):
+    async def _recv(self, name, connection, **kwargs):
         """
         :returns: tuple[str, Any], (_id, body, raw) where body is the body that
             was originally passed into send, raw is the untouched object
@@ -66,16 +67,16 @@ class InterfaceABC(object):
         """
         raise NotImplementedError()
 
-    def _ack(self, name, connection, fields, **kwargs):
+    async def _ack(self, name, connection, fields, **kwargs):
         raise NotImplementedError()
 
-    def _release(self, name, connection, fields, **kwargs):
+    async def _release(self, name, connection, fields, **kwargs):
         raise NotImplementedError()
 
-    def _clear(self, name, connection, **kwargs):
+    async def _clear(self, name, connection, **kwargs):
         raise NotImplementedError()
 
-    def _delete(self, name, connection, **kwargs):
+    async def _delete(self, name, connection, **kwargs):
         raise NotImplementedError()
 
 
@@ -91,7 +92,7 @@ class Interface(InterfaceABC):
     def __init__(self, connection_config=None):
         self.connection_config = connection_config
 
-    def connect(self, connection_config=None):
+    async def connect(self, connection_config=None):
         """connect to the interface
 
         this will set the raw db connection to self.connection
@@ -104,43 +105,43 @@ class Interface(InterfaceABC):
 
         try:
             self.connected = False
-            self._connect(self.connection_config)
+            await self._connect(self.connection_config)
             self.connected = True
             logger.debug("Connected to %s interface", self.__class__.__name__)
 
         except Exception as e:
-            raise self.raise_error(e)
+            raise self._raise_error(e)
 
         return self.connected
 
-    def close(self):
+    async def close(self):
         """
         close an open connection
         """
         if not self.connected:
             return;
 
-        self._close()
+        await self._close()
         self.connected = False
         logger.debug(
             "Closed Connection to %s interface", self.__class__.__name__,
         )
 
-    @contextmanager
-    def connection(self, name, fields=None, connection=None, **kwargs):
+    @asynccontextmanager
+    async def connection(self, name, fields=None, connection=None, **kwargs):
         try:
             if not connection:
                 if not self.connected:
-                    self.connect()
+                    await self.connect()
 
-                connection = self.get_connection()
+                connection = await self._get_connection()
 
             yield connection
 
         except Exception as e:
-            self.raise_error(e)
+            self._raise_error(e)
 
-    def fields_to_body(self, fields):
+    def _fields_to_body(self, fields):
         """This will prepare the fields passed from Message to Interface.send
 
         prepare a message to be sent over the backend
@@ -169,7 +170,7 @@ class Interface(InterfaceABC):
 
         return ret
 
-    def send_to_fields(self, _id, fields, raw):
+    def _send_to_fields(self, _id, fields, raw):
         """This creates the value that is returned from .send()
 
         :param _id: str, the unique id of the message, usually created by the
@@ -184,7 +185,7 @@ class Interface(InterfaceABC):
         fields["_send_raw"] = raw
         return fields
 
-    def send(self, name, fields, **kwargs):
+    async def send(self, name, fields, **kwargs):
         """send an interface message to the message queue
 
         :param name: str, the queue name
@@ -195,11 +196,11 @@ class Interface(InterfaceABC):
         if not fields:
             raise ValueError("No fields to send")
 
-        with self.connection(name, fields=fields, **kwargs) as connection:
+        async with self.connection(name, fields=fields, **kwargs) as connection:
             kwargs["connection"] = connection
-            _id, raw = self._send(
+            _id, raw = await self._send(
                 name=name,
-                body=self.fields_to_body(fields),
+                body=self._fields_to_body(fields),
                 **kwargs
             )
             logger.debug(
@@ -208,19 +209,19 @@ class Interface(InterfaceABC):
                 name,
                 fields,
             )
-            return self.send_to_fields(_id, fields, raw)
+            return self._send_to_fields(_id, fields, raw)
 
-    def count(self, name, **kwargs):
+    async def count(self, name, **kwargs):
         """count how many messages are in queue name
 
         :returns: int, a rough count of the messages in the queue, this is
             backend dependent and might not be completely accurate
         """
-        with self.connection(name, **kwargs) as connection:
+        async with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
-            return int(self._count(name, **kwargs))
+            return int(await self._count(name, **kwargs))
 
-    def body_to_fields(self, body):
+    def _body_to_fields(self, body):
         """This will prepare the body returned from the backend to be passed
         to Message
 
@@ -255,7 +256,7 @@ class Interface(InterfaceABC):
 
         return ret
 
-    def recv_to_fields(self, _id, body, raw):
+    def _recv_to_fields(self, _id, body, raw):
         """This creates the value that is returned from .recv()
 
         :param _id: str, the unique id of the message, usually created by the
@@ -266,13 +267,13 @@ class Interface(InterfaceABC):
             begins with an underscore then that usually means it was populated
             internally
         """
-        fields = self.body_to_fields(body)
+        fields = self._body_to_fields(body)
         fields["_id"] = _id
         fields["_raw"] = raw
         fields["_count"] = 1
         return fields
 
-    def recv(self, name, timeout=None, **kwargs):
+    async def recv(self, name, timeout=None, **kwargs):
         """receive a message from queue name
 
         :param name: str, the queue name
@@ -283,14 +284,14 @@ class Interface(InterfaceABC):
             underscore), it will return None if it failed to fetch (ie, timeout
             or error)
         """
-        with self.connection(name, **kwargs) as connection:
+        async with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
-            _id, body, raw = self._recv(
+            _id, body, raw = await self._recv(
                 name,
                 timeout=timeout,
                 **kwargs
             )
-            fields = self.recv_to_fields(_id, body, raw) if body else None
+            fields = self._recv_to_fields(_id, body, raw) if body else None
             if fields:
                 logger.log_for(
                     debug=(
@@ -309,7 +310,7 @@ class Interface(InterfaceABC):
 
             return fields
 
-    def ack(self, name, fields, **kwargs):
+    async def ack(self, name, fields, **kwargs):
         """this will acknowledge that the interface message was received
         successfully
 
@@ -318,12 +319,12 @@ class Interface(InterfaceABC):
             additional fields that the backend will most likely need to ack the
             message
         """
-        with self.connection(name, fields=fields, **kwargs) as connection:
+        async with self.connection(name, fields=fields, **kwargs) as connection:
             kwargs["connection"] = connection
-            self._ack(name, fields=fields, **kwargs)
+            await self._ack(name, fields=fields, **kwargs)
             logger.debug("Message %s acked from %s", fields["_id"], name)
 
-    def release(self, name, fields, **kwargs):
+    async def release(self, name, fields, **kwargs):
         """release the message back into the queue, this is usually for when
         processing the message has failed and so a new attempt to process the
         message should be made
@@ -333,7 +334,7 @@ class Interface(InterfaceABC):
             additional fields that the backend will most likely need to release
             the message
         """
-        with self.connection(name, fields=fields, **kwargs) as connection:
+        async with self.connection(name, fields=fields, **kwargs) as connection:
             kwargs["connection"] = connection
             delay_seconds = max(kwargs.pop('delay_seconds', 0), 0)
             count = fields.get("_count", 0)
@@ -355,7 +356,7 @@ class Interface(InterfaceABC):
                         (count * backoff) * amplifier
                     )
 
-            self._release(
+            await self._release(
                 name,
                 fields=fields,
                 delay_seconds=delay_seconds,
@@ -369,28 +370,28 @@ class Interface(InterfaceABC):
                 delay_seconds,
             )
 
-    def unsafe_clear(self, name, **kwargs):
+    async def unsafe_clear(self, name, **kwargs):
         """clear the queue name, clearing the queue removes all the messages
         from the queue but doesn't delete the actual queue
 
         :param name: str, the queue name to clear
         """
-        with self.connection(name, **kwargs) as connection:
+        async with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
-            self._clear(name, **kwargs)
+            await self._clear(name, **kwargs)
             logger.debug("Messages cleared from %s", name)
 
-    def unsafe_delete(self, name, **kwargs):
+    async def unsafe_delete(self, name, **kwargs):
         """delete the queue, this removes messages and the queue
 
         :param name: str, the queue name to delete
         """
-        with self.connection(name, **kwargs) as connection:
+        async with self.connection(name, **kwargs) as connection:
             kwargs["connection"] = connection
-            self._delete(name, **kwargs)
+            await self._delete(name, **kwargs)
             logger.debug("Queue %s deleted", name)
 
-    def raise_error(self, e):
+    def _raise_error(self, e):
         """this is just a wrapper to make the passed in exception an
         InterfaceError"""
         if (

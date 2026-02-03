@@ -2,6 +2,7 @@
 import os
 from multiprocessing import cpu_count, Process
 from collections import Counter
+import asyncio
 
 from morp.compat import *
 from morp.interface.postgres import Postgres
@@ -12,18 +13,28 @@ from . import TestCase, skipIf
 counts = Counter()
 
 def send(count, message_class):
-    pid = os.getpid()
-    for x in range(count):
-        print(f"{x}/{count}. {pid} is sending {x}")
-        m = message_class(x=x)
-        m.send()
+    async def send():
+        pid = os.getpid()
+        for x in range(count):
+            print(f"{x}/{count}. {pid} is sending {x}")
+            m = message_class(x=x)
+            await m.send()
+
+        await message_class.interface.close()
+
+    asyncio.run(send())
+
 
 def recv(count, message_class):
-    message_class.handle(count)
+    async def recv():
+        await message_class.process(count)
+        await message_class.interface.close()
+
+    asyncio.run(recv())
 
 
 class StressTask(Message):
-    def target(self):
+    def handle(self):
         pid = os.getpid()
         print(f"{pid} is receiving {self.x}")
         counts[pid] += 1

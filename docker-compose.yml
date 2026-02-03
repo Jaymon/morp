@@ -20,7 +20,7 @@ services:
     container_name: morp-dev
     restart: always # unless-stopped
     env_file:
-      - .env.local
+      - .env
 #     volumes:
 #       - ./cache/postgres/data:/var/lib/postgresql/data
 #       - ./cache/postgres/initdb.d/extensions.sql:/docker-entrypoint-initdb.d/extensions.sql

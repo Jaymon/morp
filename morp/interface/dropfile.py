@@ -15,8 +15,8 @@ from .base import Interface
 
 class Dropfile(Interface):
     """Dropfile interface using local files as messages, great for quick
-    prototyping or passing messages from the frontend to the backend on the same
-    machine
+    prototyping or passing messages from the frontend to the backend on the
+    same machine
     """
     _connection = None
 
@@ -24,7 +24,7 @@ class Dropfile(Interface):
     def queue(self, name, connection, **kwargs):
         yield connection.child_dir(name, touch=True)
 
-    def _connect(self, connection_config):
+    async def _connect(self, connection_config):
         self._connection = Dirpath(
             connection_config.path,
             "morp",
@@ -32,13 +32,13 @@ class Dropfile(Interface):
             touch=True
         )
 
-    def get_connection(self):
+    async def _get_connection(self):
         return self._connection
 
-    def _close(self):
+    async def _close(self):
         pass
 
-    def _send(self, name, connection, body, **kwargs):
+    async def _send(self, name, connection, body, **kwargs):
         with self.queue(name, connection) as queue:
             now = time.time_ns()
             _id = uuid.uuid4().hex
@@ -50,18 +50,18 @@ class Dropfile(Interface):
             message.write_bytes(body)
             return _id, message
 
-    def _count(self, name, connection, **kwargs):
+    async def _count(self, name, connection, **kwargs):
         with self.queue(name, connection) as queue:
             return queue.files().count()
 
-    def recv_to_fields(self, _id, body, raw):
-        fields = super().recv_to_fields(_id, body, raw)
+    def _recv_to_fields(self, _id, body, raw):
+        fields = super()._recv_to_fields(_id, body, raw)
         fields["_count"] = raw._count
         fields["_body"] = body
         #fields["_created"] = raw.stat[9]
         return fields
 
-    def _recv(self, name, connection, **kwargs):
+    async def _recv(self, name, connection, **kwargs):
         _id = body = raw = None
         timeout = kwargs.get('timeout', None) or 0.0
         count = 0.0
@@ -86,8 +86,8 @@ class Dropfile(Interface):
                                 break
 
                             else:
-                                # looks like another process got to this message
-                                # first, so try and clean it up
+                                # looks like another process got to this
+                                # message first, so try and clean it up
                                 self._cleanup(fp, message, truncate=False)
 
                         except OSError as e:
@@ -103,11 +103,11 @@ class Dropfile(Interface):
 
         return _id, body, raw
 
-    def _ack(self, name, connection, fields, **kwargs):
+    async def _ack(self, name, connection, fields, **kwargs):
         message = fields["_raw"]
         self._cleanup(message.fp, message)
 
-    def _release(self, name, connection, fields, **kwargs):
+    async def _release(self, name, connection, fields, **kwargs):
         delay_seconds = kwargs.get('delay_seconds', 0)
 
         _id = fields["_id"]
@@ -119,8 +119,8 @@ class Dropfile(Interface):
             now = time.time_ns() + (delay_seconds * 1000000000)
 
             # let's copy the file body to the future and then delete the old
-            # message, sadly, because we've got a lock on the file we can't move
-            # or copy it, so we're just going to create a new file
+            # message, sadly, because we've got a lock on the file we can't
+            # move or copy it, so we're just going to create a new file
             count = fields["_count"] + 1
             dest = Filepath(message.dirname, f"{now}-{_id}-{count}.txt")
             dest.write_bytes(body)
@@ -130,11 +130,11 @@ class Dropfile(Interface):
             # release the message back into the queue
             self._cleanup(fp, message, truncate=False, delete=False)
 
-    def _clear(self, name, connection, **kwargs):
+    async def _clear(self, name, connection, **kwargs):
         with self.queue(name, connection) as queue:
             queue.clear()
 
-    def _delete(self, name, connection, **kwargs):
+    async def _delete(self, name, connection, **kwargs):
         with self.queue(name, connection) as queue:
             queue.delete()
 

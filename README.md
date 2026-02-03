@@ -41,7 +41,7 @@ Let's create our `Message` class in `tasks.py`:
 from morp import Message
 
 class Foo(Message):
-    def target(self):
+    def handle(self):
         # this will be run when a Foo message is consumed
         print(self.fields)
 ```
@@ -51,11 +51,13 @@ Now, let's flesh out our `recv.py` file:
 ```python
 # recv.py
 
+import asyncio
+
 # import our Foo message class from our tasks.py file
 from tasks import Foo
 
-# Foo's handle method will call Foo.target
-Foo.handle()
+# Foo's `process` method will call `Foo.handle` for each Foo instance received
+asyncio.run(Foo.process())
 ```
 
 And start it up:
@@ -70,22 +72,27 @@ Finally, let's send some messages by fleshing out `send.py`:
 ```python
 # send.py
 
+import asyncio
+
 from tasks import Foo
 
-# create a message and send it manually
-f = Foo()
-f.some_field = 1
-f.some_other_field = "one"
-f.send()
+async def send_messages():
+    # create a message and send it manually
+    f = Foo()
+    f.some_field = 1
+    f.some_other_field = "one"
+    await f.send()
 
-# quickly send a message
-Foo.create(
-    some_field=2,
-    some_other_field = "two"
-)
+    # quickly send a message
+    await Foo.create(
+        some_field=2,
+        some_other_field="two",
+    )
+    
+asyncio.run(send_messages())
 ```
 
-And running it (it should send two messages):
+And running it in a separate shell from the shell running our `recv.py` script (it should send two messages):
 
 ```
 $ python send.py
