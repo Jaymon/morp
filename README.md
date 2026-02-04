@@ -41,6 +41,9 @@ Let's create our `Message` class in `tasks.py`:
 from morp import Message
 
 class Foo(Message):
+    some_field: int
+    some_other_field: str
+    
     def handle(self):
         # this will be run when a Foo message is consumed
         print(self.fields)
@@ -81,6 +84,7 @@ async def send_messages():
     f = Foo()
     f.some_field = 1
     f.some_other_field = "one"
+    f.ignored_field = True
     await f.send()
 
     # quickly send a message
@@ -167,11 +171,11 @@ Set this environment variable with your connection DSN so Morp can automatically
 
 ### I would like to have multiple queues
 
-By default, Morp will send any message from any `morp.Message` derived class to `Message.get_name()`, you can override this behavior by giving your child class a `.name` attribute:
+By default, Morp will send any message from any `morp.Message` derived class to `Message.get_name()`, you can override this behavior by giving your child class a `._name` property:
 
 ```python
 from morp import Message
 
 class childMsg(Message):
-    name = "custom-queue-name"
+    _name = "custom-queue-name"
 ```

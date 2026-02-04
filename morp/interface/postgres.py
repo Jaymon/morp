@@ -22,15 +22,6 @@ class Postgres(Interface):
     https://www.psycopg.org/psycopg3/docs/api/connections.html
     """
 
-    _pool = None
-    """Will hold the postgres connections
-
-    https://www.psycopg.org/psycopg3/docs/advanced/pool.html
-    https://www.psycopg.org/psycopg3/docs/api/pool.html
-    https://www.psycopg.org/psycopg3/docs/api/connections.html
-    https://www.psycopg.org/psycopg3/docs/basic/install.html#pool-installation
-    """
-
     class Status(Enum):
         """The values for the status field in each queue table
         """
