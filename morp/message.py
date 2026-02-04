@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
-import os
-from contextlib import contextmanager
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import logging
-import datetime
 import inspect
 import typing
 
@@ -34,6 +31,13 @@ class Message(object):
         import morp
 
         class CustomMessage(morp.Message):
+            # message fields
+            foo: int
+            bar: str
+
+            # class fields start with an underscore
+            _ignored: bool = False
+
             def handle(self):
                 # target will be called when the message is consumed using
                 # the CustomMessage.handle method
@@ -58,17 +62,6 @@ class Message(object):
     _connection_name: str = ""
     """the name of the connection to use to retrieve the interface"""
 
-#     fields = None
-    """holds the actual message that will be sent, this is a dict of key/values
-    that will be sent. The fields can be set using properties of this class
-
-    example --
-        m = Message
-        m.foo = 1
-        m.bar = 2
-        print(m.fields) # {"foo": 1, "bar": 2}
-    """
-
     _name: str = "morp-messages"
     """The queue name, see .get_name()"""
 
@@ -76,23 +69,8 @@ class Message(object):
     """The key that will be used to hold the Message's child class's full
     classpath, see `._to_interface` and `.from_interface`"""
 
-    #_id: str = ""
-    """The unique id of the message. This is only populated after the
-    message has been sent"""
-
-    #_classpath: str
-    """holds the Message child class's full classpath, see `._hydrate`"""
-
-    #_count: int = 0
-    """How many times the message has been processed"""
-
-    #_raw_send: typing.Any|None = None
-    """Holds the raw response from the interface from the last time the
-    message was sent"""
-
-    #_raw_recv: typing.Any|None = None
-    """Holds the raw response from the interface from the last time the
-    message was received"""
+    _message_classes: dict = {}
+    """Holds all the children message classes. See `__init_subclass__`"""
 
     @classproperty
     def interface(cls):
@@ -101,13 +79,9 @@ class Message(object):
     @classproperty
     def schema(cls):
         schema = {}
-        magic_field_names = set(["_id", "_count"])
 
         for field_name, field_type in typing.get_type_hints(cls).items():
-            if (
-                field_name.startswith("_")
-                and field_name not in magic_field_names
-            ):
+            if field_name.startswith("_"):
                 continue
 
             schema[field_name] = ReflectType(field_type)
@@ -127,64 +101,18 @@ class Message(object):
 
         return fields
 
-
-
-        #for klass in inspect.getmro(cls)[:-1]:
-        #    pout.v(klass.__name__)
-#         for k, v in inspect.getmembers_static(cls):
-#             # ignore private members
-#             if k.startswith("_"):
-#                 continue
-# 
-#             # ignore methods
-#             #if inspect.isfunction(v):
-#             #    continue
-# 
-# #             if inspect.isfunction(v) or inspect.iscoroutinefunction(v):
-# #                 continue
-# 
-# #                 if (
-# #                     inspect.ismethoddescriptor(v)
-# #                     or inspect.isdatadescriptor(v)
-# #                     or inspect.isgetsetdescriptor(v)
-# #                 ):
-# #                     continue
-# 
-#             pout.v(k, v)
-
-
-        # we get all the members this way because if we used
-        # `inspect.getmembers` trying to get this class property will throw
-        # it into an infinite loop
-#         for klass in inspect.getmro(cls)[:-1]:
-#             for k, v in vars(klass).items():
-#                 pout.v(k)
-
-
-
     def __init__(self, fields=None, **fields_kwargs):
         fields = make_dict(fields, fields_kwargs)
         self._from_interface(fields)
 
-        #self.fields = self.make_dict(fields, fields_kwargs)
+    def __init_subclass__(cls):
+        """When a child class is loaded into memory it will be saved into
+        .orm_classes, this way every orm class knows about all the other orm
+        classes, this is the method that makes that possible magically
 
-#     def __getattr__(self, key):
-#         if hasattr(self.__class__, key):
-#             return super().__getattr__(key)
-#         else:
-#             return self.fields[key]
-# 
-#     def __setattr__(self, key, val):
-#         if hasattr(self.__class__, key):
-#             super().__setattr__(key, val)
-#         else:
-#             self.fields[key] = val
-# 
-#     def __setitem__(self, key, val):
-#         self.fields[key] = val
-# 
-#     def __getitem__(self, key):
-#         return self.fields[key]
+        https://peps.python.org/pep-0487/
+        """
+        cls._message_classes[f"{cls.__module__}:{cls.__qualname__}"] = cls
 
     def __contains__(self, field_name):
         v = getattr(self, field_name, typing.NoReturn)
@@ -356,29 +284,12 @@ class Message(object):
         await instance.send(connection=connection)
         return instance
 
-#     @classmethod
-#     async def unsafe_clear(cls):
-#         """clear the whole message queue"""
-#         n = cls.get_name()
-#         return await cls.interface.unsafe_clear(n)
-
     @classmethod
     async def count(cls):
         """how many messages total (approximately) are in the whole message
         queue"""
         n = cls.get_name()
         return await cls.interface.count(n)
-
-#     @classmethod
-#     def _make_dict(cls, fields, fields_kwargs):
-#         """lot's of methods take a dict or kwargs, this combines those"""
-#         return make_dict(fields, fields_kwargs)
-
-#     @classmethod
-#     def get_class(cls, classpath):
-#         """wrapper to make it easier to do this in child classes, which seems
-#         to happen quite frequently"""
-#         return ReflectName(classpath).get_class()
 
     @classmethod
     def _hydrate(cls, fields):
@@ -429,34 +340,15 @@ class Message(object):
             if field_name in fields:
                 setattr(self, field_name, fields[field_name])
 
-#         for field_name, field_value in fields.items():
-#             if field_name in schema:
-#                 setattr(self, field_name, field_value)
+    async def handle(self) -> bool|None:
+        """This method will be called from `.process` and can handle any
+        processing of the message, it should be defined in the child classes
 
-    async def handle(self):
-        """This method will be called from handle() and can handle any
-        processing of the message, it should be defined in the child classes"""
+        :returns:
+            - if False, the message will be released back to be processed
+              again
+            - any other value is considered a success and the message is
+              acked/consumed
+        """
         raise NotImplementedError()
-
-#     async def ack(self, **kwargs):
-#         """Acknowledge this message has been processed"""
-#         await self.interface.ack(
-#             self.get_name(),
-#             self._to_interface(),
-#             **kwargs,
-#         )
-# 
-#     async def release(self, **kwargs):
-#         """Release this message back to the interface so another message
-#         instance can pick it up
-# 
-#         :param **kwargs:
-#             - delay_seconds: int, how many seconds before the message can be
-#                 processed again. The max value is interface specific
-#         """
-#         await self.interface.release(
-#             self.get_name(),
-#             self._to_interface(),
-#             **kwargs,
-#         )
 

@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import time
 import select
@@ -75,31 +74,6 @@ class Postgres(Interface):
             if cursor is not None:
                 await cursor.close()
 
-#     @contextmanager
-#     def connection(self, name, fields=None, connection=None, **kwargs):
-#         """We override parent's .connection context manager to use the pool's
-#         context manager also so we get all kinds of fancy connection and
-#         transaction handling
-#         """
-#         if connection:
-#             kwargs["connection"] = connection
-#             with super().connection(name, **kwargs) as connection:
-#                 yield connection
-# 
-#         else:
-#             self.connect()
-# 
-#             # https://www.psycopg.org/psycopg3/docs/api/connections.html#the-connection-class
-#             # https://github.com/psycopg/psycopg/blob/master/psycopg/psycopg/connection.py
-#             with self._pool.connection() as connection:
-#                 kwargs["connection"] = connection
-#                 with super().connection(
-#                     name,
-#                     fields=fields,
-#                     **kwargs
-#                 ) as connection:
-#                     yield connection
-
     async def _connect(self, connection_config):
         """Connect to the db
 
@@ -116,32 +90,12 @@ class Postgres(Interface):
             autocommit=True,
         )
 
-#         self._pool = ConnectionPool(
-#             # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
-#             kwargs=dict(
-#                 dbname=connection_config.path.lstrip("/"),
-#                 user=connection_config.username,
-#                 password=connection_config.password,
-#                 host=connection_config.hosts[0][0],
-#                 port=connection_config.hosts[0][1],
-#                 row_factory=psycopg.rows.dict_row,
-#                 # https://www.psycopg.org/psycopg3/docs/basic/transactions.html#autocommit-transactions
-#                 autocommit=True,
-#             ),
-#             min_size=connection_config.options.get("min_size", 1),
-#             max_size=connection_config.options.get("max_size", 10),
-#             open=True,
-# 
-#         )
-
     async def _get_connection(self):
         return self._connection
 
     async def _close(self):
         await self._connection.close()
         self._connection = None
-#         self._pool.close()
-#         self._pool = None
 
     def _render_sql(self, rows, *names):
         """Given a list of rows and names turn that into valid sql
@@ -188,7 +142,7 @@ class Postgres(Interface):
                     "  valid TIMESTAMPTZ,",
                     "  _created TIMESTAMPTZ,",
                     "  _updated TIMESTAMPTZ",
-                    ")"
+                    ")",
                 ],
                 name
             ),
@@ -198,7 +152,7 @@ class Postgres(Interface):
                     "  valid,",
                     "  status,",
                     "  _created",
-                    ")"
+                    ")",
                 ],
                 self._render_index_name(name),
                 name
@@ -221,7 +175,7 @@ class Postgres(Interface):
                 "  (body, status, valid, _created, _updated)",
                 "VALUES",
                 "  (%s, %s, %s, %s, %s)",
-                "RETURNING _id"
+                "RETURNING _id",
             ],
             name
         )
@@ -289,7 +243,7 @@ class Postgres(Interface):
                 "  AND status != %s",
                 "  ORDER BY _created ASC",
                 "  FOR UPDATE SKIP LOCKED",
-                "  LIMIT 1"
+                "  LIMIT 1",
                 ")",
                 "RETURNING",
                 "  _id,",
@@ -298,7 +252,7 @@ class Postgres(Interface):
                 "  count,",
                 "  valid,",
                 "  _created,",
-                "  _updated"
+                "  _updated",
             ],
             name,
             name,
@@ -378,7 +332,7 @@ class Postgres(Interface):
                     "  count = count + 1,",
                     "  valid = %s,",
                     "  _updated = %s",
-                    "WHERE _id = %s"
+                    "WHERE _id = %s",
                 ],
                 name
             )
@@ -397,7 +351,7 @@ class Postgres(Interface):
                     "  status = %s,",
                     "  count = count + 1,",
                     "  _updated = %s",
-                    "WHERE _id = %s"
+                    "WHERE _id = %s",
                 ],
                 name
             )

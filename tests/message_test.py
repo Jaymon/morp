@@ -139,8 +139,6 @@ class MessageTest(TestCase):
             boo: int = 3
             _ignored: str = ""
 
-        #pout.v(Foo.schema)
-
         class Bar(Foo):
             bam: int
 
