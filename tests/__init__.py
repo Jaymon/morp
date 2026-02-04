@@ -5,7 +5,7 @@ import subprocess
 
 import testdata
 from testdata import skipIf
-from datatypes import NamingConvention
+from datatypes import NamingConvention, ReflectType
 
 from morp.compat import *
 from morp.interface.dropfile import Dropfile
@@ -33,16 +33,8 @@ class TestCase(testdata.IsolatedAsyncioTestCase):
 
     DSN_ENV_NAME = "MORP_TEST_DSN"
 
-#     @classmethod
-#     def tearDownClass(cls):
-#         # clean up all the queues we made and close all the interfaces
-#         if cls.interfaces:
-#             inter = cls.interfaces[0]
-#             for name in cls.queues:
-#                 inter.unsafe_delete(name)
-# 
-#             for inter in cls.interfaces:
-#                 inter.close()
+    async def asyncSetUp(self):
+        await self.asyncTearDown()
 
     async def asyncTearDown(self):
         """clean up all the queues we made and close all the interfaces"""
@@ -56,10 +48,6 @@ class TestCase(testdata.IsolatedAsyncioTestCase):
 
         type(self).queues = []
         type(self).interfaces = []
-
-        # close any global interfaces also
-        #for _, inter in get_interfaces().items():
-        #    await inter.close()
 
     def get_config(self, dsn="", config=None, **options):
         if dsn:
@@ -113,26 +101,30 @@ class TestCase(testdata.IsolatedAsyncioTestCase):
         interface=None,
         config=None,
         target=None,
+        schema=None,
         message_class=None
     ):
         name = self.get_name(name)
         inter = self.get_interface(config=config, interface=interface)
 
         message_class = message_class or Message
-        target = target or message_class.handle
-
-        return type(
-            NamingConvention(name).camelcase(),
-            (message_class,),
-            dict(
-                name=name,
-                interface=inter,
-                handle=target,
-                connection_name=inter.connection_config.name,
-            ),
+        properties = dict(
+            _name=name,
+            interface=inter,
+            handle=target or message_class.handle,
+            connection_name=inter.connection_config.name,
         )
 
-        return orm_class
+        if schema:
+            properties["schema"] = schema
+
+        child_class = type(
+            NamingConvention(name).camelcase(),
+            (message_class,),
+            properties,
+        )
+
+        return child_class
 
     def get_message(
         self,
@@ -144,11 +136,13 @@ class TestCase(testdata.IsolatedAsyncioTestCase):
         **fields
     ):
         fields = self.get_fields(**fields)
+        schema = self.get_schema(fields)
         return self.get_message_class(
             name=name,
             interface=interface,
             config=config,
             target=target,
+            schema=schema,
             message_class=message_class
         )(**fields)
 
@@ -159,6 +153,13 @@ class TestCase(testdata.IsolatedAsyncioTestCase):
                 "bar": testdata.get_words(),
             })
         return fields
+
+    def get_schema(self, fields):
+        schema = {}
+        for field_name, field_value in fields.items():
+            schema[field_name] = ReflectType(type(field_value))
+
+        return schema
 
     def assertEqualFields(self, fields1, fields2, **kwargs):
         return self.assertEqual(

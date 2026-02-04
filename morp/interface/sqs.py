@@ -332,8 +332,11 @@ class SQS(Interface):
     async def _recv(self, name, connection, **kwargs):
         timeout = kwargs.get('timeout', None)
         if timeout is not None:
+            if timeout == 0:
+                kwargs["timeout"] = 20
+
             # http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-long-polling.html
-            if timeout < 0 or timeout > 20:
+            if timeout < 1 or timeout > 20:
                 raise ValueError('timeout must be between 1 and 20')
 
         vtimeout = kwargs.get('vtimeout', None) # !!! I'm not sure this works

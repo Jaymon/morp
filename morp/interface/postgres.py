@@ -324,7 +324,7 @@ class Postgres(Interface):
 
     async def _recv(self, name, connection, **kwargs):
         _id = body = raw = None
-        timeout = kwargs.get('timeout', None) or 0.0
+        timeout = kwargs.get('timeout', 0.0)
 
         raw = await self._get_raw(name, connection)
         if not raw:

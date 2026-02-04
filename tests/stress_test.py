@@ -34,6 +34,8 @@ def recv(count, message_class):
 
 
 class StressTask(Message):
+    x: int
+
     def handle(self):
         pid = os.getpid()
         print(f"{pid} is receiving {self.x}")

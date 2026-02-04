@@ -5,8 +5,15 @@ from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import logging
 import datetime
 import inspect
+import typing
 
-from datatypes import ReflectClass, ReflectName, make_dict, classproperty
+from datatypes import (
+    ReflectClass,
+    ReflectName,
+    ReflectType,
+    make_dict,
+    classproperty,
+)
 
 from .compat import *
 from .interface import get_interface
@@ -27,31 +34,31 @@ class Message(object):
         import morp
 
         class CustomMessage(morp.Message):
-            def target(self):
+            def handle(self):
                 # target will be called when the message is consumed using
                 # the CustomMessage.handle method
                 pass
 
         m1 = CustomMessage(foo=1, bar="one")
-        m1.send() # m1 is sent with foo and bar fields
+        await m1.send() # m1 is sent with foo and bar fields
 
-        m2 = CustomMessage.create(foo=2, bar="two")
+        m2 = await CustomMessage.create(foo=2, bar="two")
         # m2 was created and sent with foo and bar fields
 
-        CustomMessage.handle(2)
+        await CustomMessage.process(2)
         # both m1 and m2 were consumed and their .target methods called
 
     By default, all subclasses will go to the same queue and then when the
     queue is consumed the correct child class will be created and consume the
-    message with its .target() method.
+    message with its `.handle` method.
 
-    If you would like your subclass to use a different queue then just set
-    .name property on the class and it qill use a different queue
+    If you would like your subclass to use a different queue then just set the
+    `._name` property on the class and it will use a different queue
     """
-    connection_name = ""
+    _connection_name: str = ""
     """the name of the connection to use to retrieve the interface"""
 
-    fields = None
+#     fields = None
     """holds the actual message that will be sent, this is a dict of key/values
     that will be sent. The fields can be set using properties of this class
 
@@ -62,52 +69,140 @@ class Message(object):
         print(m.fields) # {"foo": 1, "bar": 2}
     """
 
-    name = "morp-messages"
+    _name: str = "morp-messages"
     """The queue name, see .get_name()"""
 
-    classpath_key = "_message_classpath"
+    _classpath_key: str = "_classpath"
     """The key that will be used to hold the Message's child class's full
-    classpath, see .hydrate()"""
+    classpath, see `._to_interface` and `.from_interface`"""
+
+    #_id: str = ""
+    """The unique id of the message. This is only populated after the
+    message has been sent"""
+
+    #_classpath: str
+    """holds the Message child class's full classpath, see `._hydrate`"""
+
+    #_count: int = 0
+    """How many times the message has been processed"""
+
+    #_raw_send: typing.Any|None = None
+    """Holds the raw response from the interface from the last time the
+    message was sent"""
+
+    #_raw_recv: typing.Any|None = None
+    """Holds the raw response from the interface from the last time the
+    message was received"""
 
     @classproperty
     def interface(cls):
-        return get_interface(cls.connection_name)
+        return get_interface(cls._connection_name)
+
+    @classproperty
+    def schema(cls):
+        schema = {}
+        magic_field_names = set(["_id", "_count"])
+
+        for field_name, field_type in typing.get_type_hints(cls).items():
+            if (
+                field_name.startswith("_")
+                and field_name not in magic_field_names
+            ):
+                continue
+
+            schema[field_name] = ReflectType(field_type)
+
+        # cache the value so we don't need to generate it again
+        cls.schema = schema
+        return cls.schema
+
+    @property
+    def fields(self):
+        fields = {}
+
+        for field_name in self.schema.keys():
+            v = getattr(self, field_name, typing.NoReturn)
+            if v is not typing.NoReturn:
+                fields[field_name] = v
+
+        return fields
+
+
+
+        #for klass in inspect.getmro(cls)[:-1]:
+        #    pout.v(klass.__name__)
+#         for k, v in inspect.getmembers_static(cls):
+#             # ignore private members
+#             if k.startswith("_"):
+#                 continue
+# 
+#             # ignore methods
+#             #if inspect.isfunction(v):
+#             #    continue
+# 
+# #             if inspect.isfunction(v) or inspect.iscoroutinefunction(v):
+# #                 continue
+# 
+# #                 if (
+# #                     inspect.ismethoddescriptor(v)
+# #                     or inspect.isdatadescriptor(v)
+# #                     or inspect.isgetsetdescriptor(v)
+# #                 ):
+# #                     continue
+# 
+#             pout.v(k, v)
+
+
+        # we get all the members this way because if we used
+        # `inspect.getmembers` trying to get this class property will throw
+        # it into an infinite loop
+#         for klass in inspect.getmro(cls)[:-1]:
+#             for k, v in vars(klass).items():
+#                 pout.v(k)
+
+
 
     def __init__(self, fields=None, **fields_kwargs):
-        self.fields = self.make_dict(fields, fields_kwargs)
+        fields = make_dict(fields, fields_kwargs)
+        self._from_interface(fields)
 
-    def __getattr__(self, key):
-        if hasattr(self.__class__, key):
-            return super().__getattr__(key)
-        else:
-            return self.fields[key]
+        #self.fields = self.make_dict(fields, fields_kwargs)
 
-    def __setattr__(self, key, val):
-        if hasattr(self.__class__, key):
-            super().__setattr__(key, val)
-        else:
-            self.fields[key] = val
+#     def __getattr__(self, key):
+#         if hasattr(self.__class__, key):
+#             return super().__getattr__(key)
+#         else:
+#             return self.fields[key]
+# 
+#     def __setattr__(self, key, val):
+#         if hasattr(self.__class__, key):
+#             super().__setattr__(key, val)
+#         else:
+#             self.fields[key] = val
+# 
+#     def __setitem__(self, key, val):
+#         self.fields[key] = val
+# 
+#     def __getitem__(self, key):
+#         return self.fields[key]
 
-    def __setitem__(self, key, val):
-        self.fields[key] = val
-
-    def __getitem__(self, key):
-        return self.fields[key]
-
-    def __contains__(self, key):
-        return key in self.fields
+    def __contains__(self, field_name):
+        v = getattr(self, field_name, typing.NoReturn)
+        return v is not typing.NoReturn
+        #return hasattr(self, key)
+        #return key in self.fields
 
     async def send(self, **kwargs):
         """send the message using the configured interface for this class
 
         :param **kwargs:
-            - delay_seconds: int, how many seconds before the message can be
-                processed. The max value is interface specific, (eg, it can only
-                be 900s max (15 minutes) per SQS docs)
+        :keyword delay_seconds: int, how many seconds before the message can
+            be processed. The max value is interface specific, (eg, it can
+            only be 900s max (15 minutes) per SQS docs)
         """
         queue_off = environ.DISABLED
         name = self.get_name()
-        fields = self.to_interface()
+        fields = self._to_interface()
         if queue_off:
             logger.warning("DISABLED - Would have sent {} to {}".format(
                 fields,
@@ -119,96 +214,42 @@ class Message(object):
                 "', '".join(fields.keys()),
                 name
             ))
-            self.from_interface(
-                await self.interface.send(name=name, fields=fields, **kwargs)
+
+            hydrate_fields = await self.interface.send(
+                name=name,
+                fields=fields,
+                **kwargs,
             )
+            # we mimic hydration
+            self._from_interface(hydrate_fields)
+            self._hydrate_fields = hydrate_fields
 
     @classmethod
     def get_name(cls):
-        """This is what's used as the official queue name, it takes cls.name
-        and combines it with MORP_PREFIX environment variable
+        """This is what's used as the official queue name, it takes `.name`
+        and combines it with the `MORP_PREFIX` environment variable
 
         :returns: str, the queue name
         """
-        name = cls.name
+        name = cls._name
         if env_name := environ.PREFIX:
             name = "{}-{}".format(env_name, name)
         return name
 
-#     @classmethod
-#     @asynccontextmanager
-#     async def transaction(cls, **kwargs):
-#         """try and receive a message, return None if a message is not received
-#         within timeout
-# 
-#         Internal method, you'll notice .recv() calls this method. This method
-#         attempts to get a message and will ack or release the message depending
-#         on what .target() did
-# 
-#         :param timeout: float|int, how many seconds before yielding None
-#         :returns: generator[Message]
-#         """
-#         name = cls.get_name()
-#         i = cls.interface
-# 
-#         async with i.connection(name, **kwargs) as connection:
-#             kwargs["connection"] = connection
-# 
-#             try:
-#                 yield connection
-# 
-#             except ReleaseMessage as e:
-#                 await i.release(
-#                     name,
-#                     fields,
-#                     delay_seconds=e.delay_seconds,
-#                     **kwargs
-#                 )
-# 
-#             except AckMessage as e:
-#                 await i.ack(name, fields, **kwargs)
-# 
-#             except Exception as e:
-#                 if ack_on_recv:
-#                     await i.ack(name, fields, **kwargs)
-# 
-#                 else:
-#                     await i.release(name, fields, **kwargs)
-# 
-#                 raise
-# 
-#             else:
-#                 await i.ack(name, fields, **kwargs)
-
-#     @classmethod
-#     def _consume_iter(cls, count):
-#         max_count = count
-#         count = 0
-#         while not max_count or count < max_count:
-#             count += 1
-#             logger.debug("Handling {}/{}".format(
-#                 count,
-#                 max_count if max_count else "Infinity"
-#             ))
-# 
-#             yield count
-
     @classmethod
     async def process(cls, count=0, **kwargs):
         """wait for messages to come in and handle them by calling the incoming
-        message's handle() method
+        message's `handle` method
 
         :example:
-            # handle 10 messages by consuming them and calling .handle()
-            Message.recv(10)
+            # handle 10 messages by receiving them and calling `handle` on the
+            # message instance
+            Message.process(10)
 
         :param count: int, if you only want to handle N messages, pass in count
-        :param **kwargs: any other params will get passed to underlying recv
-            methods
+        :param **kwargs: any other params will get passed to underlying 
+            `._recv` methods
         """
-        # 20 is the max long polling timeout per Amazon
-        kwargs.setdefault('timeout', 20)
-
         max_count = count
         count = 0
         while not max_count or count < max_count:
@@ -218,7 +259,7 @@ class Message(object):
                 max_count if max_count else "Infinity"
             ))
 
-            async with cls.recv(**kwargs) as m:
+            async with cls._recv(**kwargs) as m:
                 r = m.handle()
                 while inspect.iscoroutine(r):
                     r = await r
@@ -228,43 +269,31 @@ class Message(object):
 
     @classmethod
     @asynccontextmanager
-    async def recv(cls, block=True, **kwargs):
-        """Try and receive a message, this is usually used as a context manager
+    async def _recv(cls, **kwargs) -> AbstractAsyncContextManager:
+        """Internal context manager that receives a message to be processed
 
-        Usually you'll want to use .handle(), since that will automatically
-        call the message's .target() method, but if you want to do something
-        custom with the message then you can call this method directly
+        Called from `.process` to receive messages and repeatedly calls
+        `._recv_for` to actually receive a message
 
-        :param block: bool, if True this will block until it receives a message
-        :param **kwargs:
-            * timeout: int, how long to wait before yielding None
-        :returns: generator<Message>
+        :keyword timeout: int, how long to wait before yielding None
         """
-        if block:
-            m = None
-            # 20 is the max long polling timeout per Amazon
-            kwargs.setdefault('timeout', 20)
-            while not m:
-                async with cls.recv_for(**kwargs) as m:
-                    if m:
-                        yield m
-
-        else:
-            kwargs.setdefault('timeout', 1)
-            async with cls.recv_for(**kwargs) as m:
+        m = None
+        # 20 is the max long polling timeout per Amazon
+        kwargs.setdefault('timeout', 20)
+        while not m:
+            async with cls._recv_for(**kwargs) as m:
                 if m:
                     yield m
 
-
     @classmethod
     @asynccontextmanager
-    async def recv_for(cls, timeout, **kwargs):
-        """try and receive a message, return None if a message is not received
-        within timeout
-
-        Internal method, you'll notice .recv() calls this method. This method
-        attempts to get a message and will ack or release the message depending
-        on what .target() did
+    async def _recv_for(
+        cls,
+        timeout: int|float,
+        **kwargs,
+    ) -> AbstractAsyncContextManager:
+        """Internal context manager. Try and receive a message, return None
+        if a message is not received within timeout
 
         :param timeout: float|int, how many seconds before yielding None
         :returns: generator[Message]
@@ -276,13 +305,13 @@ class Message(object):
             "Waiting to receive on {} for {} seconds".format(name, timeout)
         )
 
-        async with i.connection(name, **kwargs) as connection:
+        async with i.connection(**kwargs) as connection:
             kwargs["connection"] = connection
 
             fields = await i.recv(name, timeout=timeout, **kwargs)
             if fields:
                 try:
-                    yield cls.hydrate(fields)
+                    yield cls._hydrate(fields)
 
                 except ReleaseMessage as e:
                     await i.release(
@@ -310,89 +339,6 @@ class Message(object):
             else:
                 yield None
 
-#     @classmethod
-#     async def recv_for(cls, timeout, **kwargs):
-#         """try and receive a message, return None if a message is not received
-#         within timeout
-# 
-#         Internal method, you'll notice .recv() calls this method. This method
-#         attempts to get a message and will ack or release the message depending
-#         on what .target() did
-# 
-#         :param timeout: float|int, how many seconds before yielding None
-#         :returns: generator[Message]
-#         """
-#         i = cls.interface
-#         name = cls.get_name()
-#         ack_on_recv = kwargs.pop('ack_on_recv', False)
-#         logger.debug(
-#             "Waiting to receive on {} for {} seconds".format(name, timeout)
-#         )
-# 
-#         async with i.connection(name, **kwargs) as connection:
-#             kwargs["connection"] = connection
-# 
-#             fields = await i.recv(name, timeout=timeout, **kwargs)
-#             if fields:
-#                 try:
-#                     return cls.hydrate(fields)
-# 
-#                 except ReleaseMessage as e:
-#                     await i.release(
-#                         name,
-#                         fields,
-#                         delay_seconds=e.delay_seconds,
-#                         **kwargs
-#                     )
-# 
-#                 except AckMessage as e:
-#                     await i.ack(name, fields, **kwargs)
-# 
-#                 except Exception as e:
-#                     if ack_on_recv:
-#                         await i.ack(name, fields, **kwargs)
-# 
-#                     else:
-#                         await i.release(name, fields, **kwargs)
-# 
-#                     raise
-# 
-#                 else:
-#                     await i.ack(name, fields, **kwargs)
-# 
-#     @classmethod
-#     def _consume_iter(cls, count):
-#         max_count = count
-#         count = 0
-#         while not max_count or count < max_count:
-#             count += 1
-#             logger.debug("Handling {}/{}".format(
-#                 count,
-#                 max_count if max_count else "Infinity"
-#             ))
-# 
-#             yield count
-# 
-#     @classmethod
-#     def consume(cls, count=0, **kwargs):
-#         """wait for messages to come in and handle them by calling the incoming
-#         message's handle() method
-# 
-#         :example:
-#             # handle 10 messages by consuming them and calling .handle()
-#             Message.consume(10)
-# 
-#         :param count: int, if you only want to handle N messages, pass in count
-#         :param **kwargs: any other params will get passed to underlying recv
-#             methods
-#         """
-#         for x in cls._consume_iter(count):
-#             with cls.recv(**kwargs) as m:
-#                 r = m.target()
-# 
-#                 if r is False:
-#                     raise ReleaseMessage()
-
     @classmethod
     async def create(cls, *args, **kwargs):
         """create an instance of cls with the passed in fields and send it off
@@ -410,11 +356,11 @@ class Message(object):
         await instance.send(connection=connection)
         return instance
 
-    @classmethod
-    async def unsafe_clear(cls):
-        """clear the whole message queue"""
-        n = cls.get_name()
-        return await cls.interface.unsafe_clear(n)
+#     @classmethod
+#     async def unsafe_clear(cls):
+#         """clear the whole message queue"""
+#         n = cls.get_name()
+#         return await cls.interface.unsafe_clear(n)
 
     @classmethod
     async def count(cls):
@@ -423,23 +369,23 @@ class Message(object):
         n = cls.get_name()
         return await cls.interface.count(n)
 
-    @classmethod
-    def make_dict(cls, fields, fields_kwargs):
-        """lot's of methods take a dict or kwargs, this combines those"""
-        return make_dict(fields, fields_kwargs)
+#     @classmethod
+#     def _make_dict(cls, fields, fields_kwargs):
+#         """lot's of methods take a dict or kwargs, this combines those"""
+#         return make_dict(fields, fields_kwargs)
+
+#     @classmethod
+#     def get_class(cls, classpath):
+#         """wrapper to make it easier to do this in child classes, which seems
+#         to happen quite frequently"""
+#         return ReflectName(classpath).get_class()
 
     @classmethod
-    def get_class(cls, classpath):
-        """wrapper to make it easier to do this in child classes, which seems
-        to happen quite frequently"""
-        return ReflectName(classpath).get_class()
-
-    @classmethod
-    def hydrate(cls, fields):
+    def _hydrate(cls, fields):
         """This is used by the interface to populate an instance with
         information received from the interface
 
-        :param imessage: InterfaceMessage, the message freshly received from
+        :param fields: InterfaceMessage, the message freshly received from
             the interface, see Interface.create_imessage()
         """
         message_class = cls
@@ -447,57 +393,70 @@ class Message(object):
             # When a generic Message instance is used to consume messages it
             # will use the passed in classpath to create the correct Message
             # child
-            message_class = cls.get_class(fields.pop(cls.classpath_key))
+            rn = ReflectName(fields.get(cls._classpath_key))
+            message_class = rn.get_class()
 
         instance = message_class()
-        instance.from_interface(fields)
+        instance._from_interface(fields)
+        instance._hydrate_fields = fields
 
         return instance
 
-    def to_interface(self):
+    def _to_interface(self):
         """When sending a message to the interface this method will be called
 
         :returns: dict, the fields
         """
-        fields = self.fields
-        if self.classpath_key not in fields:
-            fields[self.classpath_key] = ReflectClass(self).classpath
+        fields = {}
+        schema = self.schema
+        for field_name, rt in schema.items():
+            fields[field_name] = rt.cast(getattr(self, field_name))
+
+        if self._classpath_key not in fields:
+            fields[self._classpath_key] = ReflectClass(self).classpath
+
         return fields
 
-    def from_interface(self, fields):
+    def _from_interface(self, fields):
         """When receiving a message from the interface this method will
         be called
 
-        you can see it in action with .hydrate()
+        you can see it in action with `._hydrate`
 
         :param fields: dict, the fields received from the interface
         """
-        self.fields.update(fields)
+        for field_name in self.schema.keys():
+            if field_name in fields:
+                setattr(self, field_name, fields[field_name])
+
+#         for field_name, field_value in fields.items():
+#             if field_name in schema:
+#                 setattr(self, field_name, field_value)
 
     async def handle(self):
         """This method will be called from handle() and can handle any
         processing of the message, it should be defined in the child classes"""
         raise NotImplementedError()
 
-    async def ack(self, **kwargs):
-        """Acknowledge this message has been processed"""
-        await self.interface.ack(
-            self.get_name(),
-            self.to_interface(),
-            **kwargs,
-        )
-
-    async def release(self, **kwargs):
-        """Release this message back to the interface so another message
-        instance can pick it up
-
-        :param **kwargs:
-            - delay_seconds: int, how many seconds before the message can be
-                processed again. The max value is interface specific
-        """
-        await self.interface.release(
-            self.get_name(),
-            self.to_interface(),
-            **kwargs,
-        )
+#     async def ack(self, **kwargs):
+#         """Acknowledge this message has been processed"""
+#         await self.interface.ack(
+#             self.get_name(),
+#             self._to_interface(),
+#             **kwargs,
+#         )
+# 
+#     async def release(self, **kwargs):
+#         """Release this message back to the interface so another message
+#         instance can pick it up
+# 
+#         :param **kwargs:
+#             - delay_seconds: int, how many seconds before the message can be
+#                 processed again. The max value is interface specific
+#         """
+#         await self.interface.release(
+#             self.get_name(),
+#             self._to_interface(),
+#             **kwargs,
+#         )
 

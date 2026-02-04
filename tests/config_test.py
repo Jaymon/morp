@@ -24,7 +24,7 @@ class ConnectionTest(TestCase):
         c = DsnConnection("sqs:")
         self.assertTrue(c.interface_name.endswith("SQS"))
 
-        c = DsnConnection("sqs:?arn=arn:aws:iam::909696579953:role/IndexerTasks")
+        c = DsnConnection("sqs:?arn=arn:aws:iam::909696573:role/IndexerTasks")
         self.assertTrue("arn:aws:iam::" in c.options["arn"])
 
     def test_dsn_connection(self):
@@ -123,7 +123,7 @@ class ConnectionTest(TestCase):
 
         config = self.get_config()
         self.assertEqual("pickle", config.serializer)
-    
+
     def test_backoff(self):
         config = self.get_config(backoff_multiplier=1)
         self.assertEqual(1, config.options["backoff_multiplier"])

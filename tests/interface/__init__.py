@@ -29,10 +29,11 @@ class _InterfaceTest(TestCase):
     async def test_queue_auto_create(self):
         """queues should auto-create, this just makes sure that works as
         intended"""
-        m = self.get_message()
-        name = m.get_name()
-        inter = m.interface
+        name = self.get_name()
+        inter = self.get_interface()
 
+        # clear the queue, this shouldn't throw an error even if the queue
+        # doesn't exist
         await inter.unsafe_delete(name)
 
     async def test__fields_body_lifecycle(self):
@@ -54,27 +55,27 @@ class _InterfaceTest(TestCase):
         self.assertEqual(fields1, fields2)
 
     async def test_send_count_recv(self):
-        msg = self.get_message()
-        name = msg.get_name()
-        inter = msg.interface
+        name = self.get_name()
+        fields = self.get_fields()
+        inter = self.get_interface()
 
-        await inter.send(name, msg.fields)
+        await inter.send(name, fields)
 
         self.assertEqual(1, await inter.count(name))
 
-        fields = await inter.recv(name)
-        self.assertEqualFields(msg.fields, fields)
+        rf = await inter.recv(name)
+        self.assertEqualFields(fields, rf)
 
-        await inter.ack(name, fields)
-
+        await inter.ack(name, rf)
         await self.assertCount(0, inter, name)
-        #self.assertEventuallyEqual(0, lambda: await inter.count(name))
 
     async def test_recv_timeout(self):
         timeout = 1 # 1s as an int is minimum for SQS
-        m = self.get_message()
+        name = self.get_name()
+        inter = self.get_interface()
+
         with self.assertWithin(1.5):
-            await m.interface.recv(m.get_name(), timeout=timeout) 
+            await inter.recv(name, timeout=timeout) 
 
     async def test_recv_atomic(self):
         name = self.get_name()
@@ -89,33 +90,33 @@ class _InterfaceTest(TestCase):
         self.assertIsNone(m3)
 
     async def test_send_recv_encrypted(self):
-        m1 = self.get_message(interface=self.get_encrypted_interface())
-        name = m1.get_name()
-        await m1.interface.send(name, m1.fields)
+        inter = self.get_encrypted_interface()
+        name = self.get_name()
+        fields = self.get_fields()
 
-        fields = await m1.interface.recv(name)
-        self.assertEqualFields(m1.fields, fields)
+        await inter.send(name, fields)
 
-        await m1.interface.ack(name, fields)
+        rf = await inter.recv(name)
+        self.assertEqualFields(fields, rf)
+        await inter.ack(name, rf)
 
     async def test_ack_message(self):
-        m1 = self.get_message()
-        await m1.send()
+        name = self.get_name()
+        fields = self.get_fields()
+        inter = self.get_interface()
 
-        async with type(m1).recv() as m2:
-            await m2.ack()
-
-        inter = m2.interface
-        name = m2.get_name()
+        await inter.send(name, fields)
+        rf = await inter.recv(name)
+        await inter.ack(name, rf)
 
         await self.assertCount(0, inter, name)
-        #self.assertEventuallyEqual(0, lambda: await inter.count(name))
 
     async def test_release_interface(self):
-        m = self.get_message()
-        name = m.get_name()
-        inter = m.interface
-        await inter.send(name, m.fields)
+        name = self.get_name()
+        fields = self.get_fields()
+        inter = self.get_interface()
+
+        await inter.send(name, fields)
 
         fields = await inter.recv(name)
         self.assertEqual(1, fields["_count"])
@@ -124,13 +125,14 @@ class _InterfaceTest(TestCase):
         fields = await inter.recv(name)
         self.assertFalse(fields)
         await self.assertCount(1, inter, name)
-        #self.assertEventuallyEqual(1, lambda: await inter.count(name))
 
     async def test_release_message(self):
-        m = self.get_message()
-        await m.send()
+        name = self.get_name()
+        fields = self.get_fields()
+        inter = self.get_interface()
 
-        async with type(m).recv() as m2:
-            self.assertEqual(1, m2._count)
-            await m2.release()
+        await inter.send(name, fields)
+        rf = await inter.recv(name)
+        self.assertEqual(1, rf["_count"])
+        await inter.release(name, rf)
 

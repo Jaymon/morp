@@ -27,7 +27,7 @@ class Dropfile(Interface):
     async def _connect(self, connection_config):
         self._connection = Dirpath(
             connection_config.path,
-            "morp",
+            __name__.split(".", 1)[0],
             "queue",
             touch=True
         )
@@ -63,7 +63,7 @@ class Dropfile(Interface):
 
     async def _recv(self, name, connection, **kwargs):
         _id = body = raw = None
-        timeout = kwargs.get('timeout', None) or 0.0
+        timeout = kwargs.get('timeout', 0.0)
         count = 0.0
 
         with self.queue(name, connection) as queue:
@@ -104,14 +104,14 @@ class Dropfile(Interface):
         return _id, body, raw
 
     async def _ack(self, name, connection, fields, **kwargs):
-        message = fields["_raw"]
+        message = fields["_raw_recv"]
         self._cleanup(message.fp, message)
 
     async def _release(self, name, connection, fields, **kwargs):
         delay_seconds = kwargs.get('delay_seconds', 0)
 
         _id = fields["_id"]
-        message = fields["_raw"]
+        message = fields["_raw_recv"]
         body = fields["_body"]
         fp = message.fp
 

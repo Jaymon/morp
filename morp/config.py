@@ -68,7 +68,7 @@ class Connection(object):
         """set all the values by passing them into this constructor, any
         unrecognized kwargs get put into .options
 
-        :Example:
+        :example:
             c = Connection(
                 interface_name="...",
                 hosts=[("host", port), ("host2", port2)],
