@@ -3,7 +3,6 @@ import time
 import select
 
 import psycopg
-from psycopg_pool import ConnectionPool
 from datatypes import Datetime, Enum
 
 from ..compat import *
