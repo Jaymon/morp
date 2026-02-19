@@ -337,7 +337,7 @@ class Interface(InterfaceABC):
                         fields
                     ),
                     info=(
-                        "Message %s recceived from %s -- %s",
+                        "Message %s received from %s -- %s",
                         _id,
                         name,
                         fields.keys(),
