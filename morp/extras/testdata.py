@@ -1,8 +1,12 @@
+import logging
 
 from testdata.base import TestData
 
 from ..message import Message
 from ..interface import get_interfaces
+
+
+logger = logging.getLogger(__name__)
 
 
 class MessageData(TestData):
@@ -26,13 +30,17 @@ class MessageData(TestData):
 
         .. note:: You'll want to only call the method in the right
             environments as this really will delete all the messages in
-        whatever message queues it has interfaces for
+            whatever message queues it has interfaces for
         """
         seen = set()
         for message_class in Message._message_classes.values():
             name = message_class.get_name()
             if name not in seen:
                 seen.add(name)
-                inter = message_class.interface
-                await inter.unsafe_delete(name)
+                try:
+                    inter = message_class.interface
+                    await inter.unsafe_delete(name)
+
+                except KeyError:
+                    logger.warning("Could not clear queue: %s", name)
 

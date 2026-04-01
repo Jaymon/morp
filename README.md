@@ -1,6 +1,6 @@
 # Morp
 
-Simple message processing without really thinking about it. Morp can use dropfiles (simple text files), Postgres, and [Amazon SQS](http://aws.amazon.com/sqs/).
+Simple message processing without really thinking about it. Morp can use dropfiles (simple text files), [Postgres](https://www.postgresql.org/), and [Amazon SQS](http://aws.amazon.com/sqs/).
 
 
 ## Installation
@@ -44,7 +44,7 @@ class Foo(Message):
     some_field: int
     some_other_field: str
     
-    def handle(self):
+    async def handle(self):
         # this will be run when a Foo message is consumed
         print(self.fields)
 ```
@@ -171,11 +171,11 @@ Set this environment variable with your connection DSN so Morp can automatically
 
 ### I would like to have multiple queues
 
-By default, Morp will send any message from any `morp.Message` derived class to `Message.get_name()`, you can override this behavior by giving your child class a `._name` property:
+By default, Morp will send any message from any `morp.Message` derived class to `Message.get_name()`, you can override this behavior by giving your child class a `.queue_name` property:
 
 ```python
 from morp import Message
 
 class childMsg(Message):
-    _name = "custom-queue-name"
+    queue_name = "custom-queue-name"
 ```

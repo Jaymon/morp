@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import logging
 import inspect
@@ -35,11 +34,11 @@ class Message(object):
             foo: int
             bar: str
 
-            # class fields start with an underscore
+            # fields that aren't part of the message start with an underscore
             _ignored: bool = False
 
-            def handle(self):
-                # target will be called when the message is consumed using
+            async def handle(self):
+                # This will be called when the message is consumed using
                 # the CustomMessage.handle method
                 pass
 
@@ -50,26 +49,26 @@ class Message(object):
         # m2 was created and sent with foo and bar fields
 
         await CustomMessage.process(2)
-        # both m1 and m2 were consumed and their .target methods called
+        # both m1 and m2 were consumed and their `.handle` methods called
 
     By default, all subclasses will go to the same queue and then when the
     queue is consumed the correct child class will be created and consume the
     message with its `.handle` method.
 
     If you would like your subclass to use a different queue then just set the
-    `._name` property on the class and it will use a different queue
+    `.queue_name` property on the class and it will use a different queue
     """
-    _connection_name: str = ""
-    """the name of the connection to use to retrieve the interface"""
-
-    _name: str = "morp-messages"
+    queue_name: typing.ClassVar[str] = "morp-messages"
     """The queue name, see .get_name()"""
 
-    _classpath_key: str = "_classpath"
+    _connection_name: typing.ClassVar[str] = ""
+    """the name of the connection to use to retrieve the interface"""
+
+    _classpath_key: typing.ClassVar[str] = "_classpath"
     """The key that will be used to hold the Message's child class's full
     classpath, see `._to_interface` and `.from_interface`"""
 
-    _message_classes: dict = {}
+    _message_classes: typing.ClassVar[dict[str, type[typing.Self]]] = {}
     """Holds all the children message classes. See `__init_subclass__`"""
 
     @classproperty
@@ -81,7 +80,10 @@ class Message(object):
         schema = {}
 
         for field_name, field_type in typing.get_type_hints(cls).items():
-            if field_name.startswith("_"):
+            if (
+                field_name.startswith("_")
+                or typing.get_origin(field_type) is typing.ClassVar
+            ):
                 continue
 
             schema[field_name] = ReflectType(field_type)
@@ -132,16 +134,16 @@ class Message(object):
         name = self.get_name()
         fields = self._to_interface()
         if queue_off:
-            logger.warning("DISABLED - Would have sent {} to {}".format(
+            logger.warning("DISABLED - Would have sent %s to %s",
                 fields,
                 name,
-            ))
+            )
 
         else:
-            logger.info("Sending message with '{}' keys to '{}'".format(
+            logger.info("Sending message with '%s' keys to '%s'",
                 "', '".join(fields.keys()),
-                name
-            ))
+                name,
+            )
 
             hydrate_fields = await self.interface.send(
                 name=name,
@@ -159,9 +161,9 @@ class Message(object):
 
         :returns: str, the queue name
         """
-        name = cls._name
+        name = cls.queue_name
         if env_name := environ.PREFIX:
-            name = "{}-{}".format(env_name, name)
+            name = f"{env_name}-{name}"
         return name
 
     @classmethod
@@ -182,10 +184,10 @@ class Message(object):
         count = 0
         while not max_count or count < max_count:
             count += 1
-            logger.debug("Receiving {}/{}".format(
+            logger.debug("Receiving %d/%s",
                 count,
-                max_count if max_count else "Infinity"
-            ))
+                max_count if max_count else "Infinity",
+            )
 
             async with cls._recv(**kwargs) as m:
                 r = m.handle()
@@ -207,7 +209,7 @@ class Message(object):
         """
         m = None
         # 20 is the max long polling timeout per Amazon
-        kwargs.setdefault('timeout', 20)
+        kwargs.setdefault("timeout", 20)
         while not m:
             async with cls._recv_for(**kwargs) as m:
                 if m:
@@ -227,11 +229,9 @@ class Message(object):
         :returns: generator[Message]
         """
         i = cls.interface
-        name = cls.get_name()
-        ack_on_recv = kwargs.pop('ack_on_recv', False)
-        logger.debug(
-            "Waiting to receive on {} for {} seconds".format(name, timeout)
-        )
+        name = kwargs.pop("name", cls.get_name())
+        ack_on_recv = kwargs.pop("ack_on_recv", False)
+        logger.debug("Waiting to receive on %s for %s seconds", name, timeout)
 
         async with i.connection(**kwargs) as connection:
             kwargs["connection"] = connection
@@ -300,12 +300,22 @@ class Message(object):
             the interface, see Interface.create_imessage()
         """
         message_class = cls
-        if cls is Message:
-            # When a generic Message instance is used to consume messages it
-            # will use the passed in classpath to create the correct Message
-            # child
-            rn = ReflectName(fields.get(cls._classpath_key))
-            message_class = rn.get_class()
+        if classpath := fields.get(cls._classpath_key):
+            cls_classpath = ReflectClass(cls).classpath
+            if cls_classpath != classpath:
+                rn = ReflectName(classpath)
+                message_class = rn.get_class()
+
+#         else:
+#             message_class = cls
+
+#         message_class = cls
+#         if cls is Message:
+#             # When a generic Message instance is used to consume messages it
+#             # will use the passed in classpath to create the correct Message
+#             # child
+#             rn = ReflectName(fields.get(cls._classpath_key))
+#             message_class = rn.get_class()
 
         instance = message_class()
         instance._from_interface(fields)

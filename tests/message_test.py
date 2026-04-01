@@ -134,6 +134,7 @@ class MessageTest(TestCase):
 
     async def test_schema(self):
         class Foo(Message):
+            queue_name = "test_schema_foo"
             bar: int
             che: str
             boo: int = 3
@@ -152,6 +153,7 @@ class MessageTest(TestCase):
         b.bam = 4
 
         fields = b._to_interface()
+        self.assertFalse("queue_name" in fields)
         for k in ["bar", "che", "boo", "bam"]:
             self.assertTrue(k in fields)
 
