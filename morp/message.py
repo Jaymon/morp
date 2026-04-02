@@ -114,7 +114,8 @@ class Message(object):
 
         https://peps.python.org/pep-0487/
         """
-        cls._message_classes[f"{cls.__module__}:{cls.__qualname__}"] = cls
+        cls._message_classes[ReflectClass(cls).classpath] = cls
+#         cls._message_classes[f"{cls.__module__}:{cls.__qualname__}"] = cls
 
     def __contains__(self, field_name):
         v = getattr(self, field_name, typing.NoReturn)
@@ -177,6 +178,12 @@ class Message(object):
             Message.process(10)
 
         :param count: int, if you only want to handle N messages, pass in count
+        :keyword name: the queue name, defaults to `.get_name`
+        :keyword timeout: int, how long for the underlying `._recv` methods
+            to wait before trying again
+        :keyword ack_on_recv: bool, True if you want to acknowledge the
+            message so it's removed from the queue on receive instead of
+            on successful processing
         :param **kwargs: any other params will get passed to underlying 
             `._recv` methods
         """
@@ -199,7 +206,7 @@ class Message(object):
 
     @classmethod
     @asynccontextmanager
-    async def _recv(cls, **kwargs) -> AbstractAsyncContextManager:
+    async def _recv(cls, **kwargs) -> AbstractAsyncContextManager[typing.Self]:
         """Internal context manager that receives a message to be processed
 
         Called from `.process` to receive messages and repeatedly calls
@@ -221,7 +228,7 @@ class Message(object):
         cls,
         timeout: int|float,
         **kwargs,
-    ) -> AbstractAsyncContextManager:
+    ) -> AbstractAsyncContextManager[typing.Self]:
         """Internal context manager. Try and receive a message, return None
         if a message is not received within timeout
 
@@ -239,7 +246,7 @@ class Message(object):
             fields = await i.recv(name, timeout=timeout, **kwargs)
             if fields:
                 try:
-                    yield cls._hydrate(fields)
+                    yield cls._from_recv(fields)
 
                 except ReleaseMessage as e:
                     await i.release(
@@ -292,7 +299,7 @@ class Message(object):
         return await cls.interface.count(n)
 
     @classmethod
-    def _hydrate(cls, fields):
+    def _from_recv(cls, fields):
         """This is used by the interface to populate an instance with
         information received from the interface
 
@@ -301,21 +308,14 @@ class Message(object):
         """
         message_class = cls
         if classpath := fields.get(cls._classpath_key):
-            cls_classpath = ReflectClass(cls).classpath
-            if cls_classpath != classpath:
-                rn = ReflectName(classpath)
-                message_class = rn.get_class()
+            if classpath in cls._message_classes:
+                message_class = cls._message_classes[classpath]
 
-#         else:
-#             message_class = cls
-
-#         message_class = cls
-#         if cls is Message:
-#             # When a generic Message instance is used to consume messages it
-#             # will use the passed in classpath to create the correct Message
-#             # child
-#             rn = ReflectName(fields.get(cls._classpath_key))
-#             message_class = rn.get_class()
+            else:
+                cls_classpath = ReflectClass(cls).classpath
+                if cls_classpath != classpath:
+                    rn = ReflectName(classpath)
+                    message_class = rn.get_class()
 
         instance = message_class()
         instance._from_interface(fields)
@@ -342,7 +342,7 @@ class Message(object):
         """When receiving a message from the interface this method will
         be called
 
-        you can see it in action with `._hydrate`
+        you can see it in action with `._from_recv`
 
         :param fields: dict, the fields received from the interface
         """
