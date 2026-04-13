@@ -115,7 +115,6 @@ class Message(object):
         https://peps.python.org/pep-0487/
         """
         cls._message_classes[ReflectClass(cls).classpath] = cls
-#         cls._message_classes[f"{cls.__module__}:{cls.__qualname__}"] = cls
 
     def __contains__(self, field_name):
         v = getattr(self, field_name, typing.NoReturn)
