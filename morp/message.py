@@ -71,26 +71,47 @@ class Message(object):
     _message_classes: typing.ClassVar[dict[str, type[typing.Self]]] = {}
     """Holds all the children message classes. See `__init_subclass__`"""
 
+    _schema_classes: typing.ClassVar[dict[str, ReflectType]] = {}
+    """Holds all the schemas. See `.schema`"""
+
     @classproperty
     def interface(cls):
         return get_interface(cls._connection_name)
 
     @classproperty
     def schema(cls):
-        schema = {}
+        classpath = ReflectClass(cls).classpath
+        if classpath not in cls._schema_classes:
+            schema = {}
 
-        for field_name, field_type in typing.get_type_hints(cls).items():
-            if (
-                field_name.startswith("_")
-                or typing.get_origin(field_type) is typing.ClassVar
-            ):
-                continue
+            for field_name, field_type in typing.get_type_hints(cls).items():
+                if (
+                    field_name.startswith("_")
+                    or typing.get_origin(field_type) is typing.ClassVar
+                ):
+                    continue
 
-            schema[field_name] = ReflectType(field_type)
+                schema[field_name] = ReflectType(field_type)
 
-        # cache the value so we don't need to generate it again
-        cls.schema = schema
-        return cls.schema
+            # cache the value so we don't need to generate it again
+            cls._schema_classes[classpath] = schema
+
+        return cls._schema_classes[classpath]
+
+#         schema = {}
+# 
+#         for field_name, field_type in typing.get_type_hints(cls).items():
+#             if (
+#                 field_name.startswith("_")
+#                 or typing.get_origin(field_type) is typing.ClassVar
+#             ):
+#                 continue
+# 
+#             schema[field_name] = ReflectType(field_type)
+# 
+#         # cache the value so we don't need to generate it again
+#         cls.schema = schema
+#         return cls.schema
 
     @property
     def fields(self):

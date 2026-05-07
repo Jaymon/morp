@@ -132,7 +132,7 @@ class MessageTest(TestCase):
             self.assertGreater(m2._hydrate_fields["_count"], count)
             self.assertEqual(m2.foo, m.foo)
 
-    async def test_schema(self):
+    async def test_schema_1(self):
         class Foo(Message):
             queue_name = "test_schema_foo"
             bar: int
@@ -156,4 +156,23 @@ class MessageTest(TestCase):
         self.assertFalse("queue_name" in fields)
         for k in ["bar", "che", "boo", "bam"]:
             self.assertTrue(k in fields)
+
+    async def test_schema_2(self):
+        class Foo(Message):
+            one: int
+            two: str
+
+        class Bar(Foo):
+            three: int
+            four: str
+
+        # have parent create a schema first
+        Foo.schema
+
+        # now make sure child creates a different schema
+        self.assertTrue(Bar.schema is not Foo.schema)
+
+        # make sure it is cached
+        s = Bar.schema
+        self.assertTrue(Bar.schema is s)
 
