@@ -71,32 +71,52 @@ class Message(object):
     _message_classes: typing.ClassVar[dict[str, type[typing.Self]]] = {}
     """Holds all the children message classes. See `__init_subclass__`"""
 
-    _schema_classes: typing.ClassVar[dict[str, ReflectType]] = {}
+    schema: typing.ClassVar[dict[str, ReflectType]|None] = None
+    """This is dynamically set in `.__init_subclass__`"""
+
+#     _schema_classes: typing.ClassVar[dict[str, ReflectType]] = {}
     """Holds all the schemas. See `.schema`"""
 
     @classproperty
     def interface(cls):
         return get_interface(cls._connection_name)
 
-    @classproperty
-    def schema(cls):
-        classpath = ReflectClass(cls).classpath
-        if classpath not in cls._schema_classes:
-            schema = {}
-
-            for field_name, field_type in typing.get_type_hints(cls).items():
-                if (
-                    field_name.startswith("_")
-                    or typing.get_origin(field_type) is typing.ClassVar
-                ):
-                    continue
-
-                schema[field_name] = ReflectType(field_type)
-
-            # cache the value so we don't need to generate it again
-            cls._schema_classes[classpath] = schema
-
-        return cls._schema_classes[classpath]
+#     @classproperty
+#     def xxschema(cls):
+#         schema = {}
+# 
+#         for field_name, field_type in typing.get_type_hints(cls).items():
+#             if (
+#                 field_name.startswith("_")
+#                 or typing.get_origin(field_type) is typing.ClassVar
+#             ):
+#                 continue
+# 
+#             schema[field_name] = ReflectType(field_type)
+# 
+#         # cache the value so we don't need to generate it again
+#         cls.schema = schema
+#         return cls.schema
+# 
+#     @classproperty
+#     def xschema(cls):
+#         classpath = ReflectClass(cls).classpath
+#         if classpath not in cls._schema_classes:
+#             schema = {}
+# 
+#             for field_name, field_type in typing.get_type_hints(cls).items():
+#                 if (
+#                     field_name.startswith("_")
+#                     or typing.get_origin(field_type) is typing.ClassVar
+#                 ):
+#                     continue
+# 
+#                 schema[field_name] = ReflectType(field_type)
+# 
+#             # cache the value so we don't need to generate it again
+#             cls._schema_classes[classpath] = schema
+# 
+#         return cls._schema_classes[classpath]
 
 #         schema = {}
 # 
@@ -136,6 +156,28 @@ class Message(object):
         https://peps.python.org/pep-0487/
         """
         cls._message_classes[ReflectClass(cls).classpath] = cls
+#         pout.i(cls)
+        #pout.v(cls.__dict__["schema"])
+
+#         def get_schema(cls):
+#             schema = {}
+# 
+#             for field_name, field_type in typing.get_type_hints(cls).items():
+#                 if (
+#                     field_name.startswith("_")
+#                     or typing.get_origin(field_type) is typing.ClassVar
+#                 ):
+#                     continue
+# 
+#                 schema[field_name] = ReflectType(field_type)
+
+        if cls.schema is None:
+            def cache_schema(cls):
+                # cache the value so we don't need to generate it again
+                cls.schema = cls.create_schema()
+                return cls.schema
+
+            cls.schema = classproperty(cache_schema)
 
     def __contains__(self, field_name):
         v = getattr(self, field_name, typing.NoReturn)
@@ -293,6 +335,21 @@ class Message(object):
 
             else:
                 yield None
+
+    @classmethod
+    def create_schema(cls) -> dict[str, ReflectType]:
+        schema = {}
+
+        for field_name, field_type in typing.get_type_hints(cls).items():
+            if (
+                field_name.startswith("_")
+                or typing.get_origin(field_type) is typing.ClassVar
+            ):
+                continue
+
+            schema[field_name] = ReflectType(field_type)
+
+        return schema
 
     @classmethod
     async def create(cls, *args, **kwargs):
