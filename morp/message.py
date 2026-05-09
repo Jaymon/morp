@@ -13,6 +13,7 @@ from datatypes import (
 
 from .compat import *
 from .interface import get_interface
+from .interface.base import Interface
 from .exception import ReleaseMessage, AckMessage
 from .config import environ
 
@@ -74,67 +75,12 @@ class Message(object):
     schema: typing.ClassVar[dict[str, ReflectType]|None] = None
     """This is dynamically set in `.__init_subclass__`"""
 
-#     _schema_classes: typing.ClassVar[dict[str, ReflectType]] = {}
-    """Holds all the schemas. See `.schema`"""
-
     @classproperty
-    def interface(cls):
+    def interface(cls) -> Interface:
         return get_interface(cls._connection_name)
 
-#     @classproperty
-#     def xxschema(cls):
-#         schema = {}
-# 
-#         for field_name, field_type in typing.get_type_hints(cls).items():
-#             if (
-#                 field_name.startswith("_")
-#                 or typing.get_origin(field_type) is typing.ClassVar
-#             ):
-#                 continue
-# 
-#             schema[field_name] = ReflectType(field_type)
-# 
-#         # cache the value so we don't need to generate it again
-#         cls.schema = schema
-#         return cls.schema
-# 
-#     @classproperty
-#     def xschema(cls):
-#         classpath = ReflectClass(cls).classpath
-#         if classpath not in cls._schema_classes:
-#             schema = {}
-# 
-#             for field_name, field_type in typing.get_type_hints(cls).items():
-#                 if (
-#                     field_name.startswith("_")
-#                     or typing.get_origin(field_type) is typing.ClassVar
-#                 ):
-#                     continue
-# 
-#                 schema[field_name] = ReflectType(field_type)
-# 
-#             # cache the value so we don't need to generate it again
-#             cls._schema_classes[classpath] = schema
-# 
-#         return cls._schema_classes[classpath]
-
-#         schema = {}
-# 
-#         for field_name, field_type in typing.get_type_hints(cls).items():
-#             if (
-#                 field_name.startswith("_")
-#                 or typing.get_origin(field_type) is typing.ClassVar
-#             ):
-#                 continue
-# 
-#             schema[field_name] = ReflectType(field_type)
-# 
-#         # cache the value so we don't need to generate it again
-#         cls.schema = schema
-#         return cls.schema
-
     @property
-    def fields(self):
+    def fields(self) -> dict:
         fields = {}
 
         for field_name in self.schema.keys():
@@ -156,21 +102,10 @@ class Message(object):
         https://peps.python.org/pep-0487/
         """
         cls._message_classes[ReflectClass(cls).classpath] = cls
-#         pout.i(cls)
-        #pout.v(cls.__dict__["schema"])
 
-#         def get_schema(cls):
-#             schema = {}
-# 
-#             for field_name, field_type in typing.get_type_hints(cls).items():
-#                 if (
-#                     field_name.startswith("_")
-#                     or typing.get_origin(field_type) is typing.ClassVar
-#                 ):
-#                     continue
-# 
-#                 schema[field_name] = ReflectType(field_type)
-
+        # If we don't have a schema already set, let's create a class property
+        # that will call `.create_schema` and then cache the value in the
+        # class's `.schema` property
         if cls.schema is None:
             def cache_schema(cls):
                 # cache the value so we don't need to generate it again
@@ -179,13 +114,11 @@ class Message(object):
 
             cls.schema = classproperty(cache_schema)
 
-    def __contains__(self, field_name):
+    def __contains__(self, field_name: str) -> bool:
         v = getattr(self, field_name, typing.NoReturn)
         return v is not typing.NoReturn
-        #return hasattr(self, key)
-        #return key in self.fields
 
-    async def send(self, **kwargs):
+    async def send(self, **kwargs) -> None:
         """send the message using the configured interface for this class
 
         :param **kwargs:
@@ -218,7 +151,7 @@ class Message(object):
             self._hydrate_fields = hydrate_fields
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         """This is what's used as the official queue name, it takes `.name`
         and combines it with the `MORP_PREFIX` environment variable
 
@@ -230,7 +163,7 @@ class Message(object):
         return name
 
     @classmethod
-    async def process(cls, count=0, **kwargs):
+    async def process(cls, count=0, **kwargs) -> None:
         """wait for messages to come in and handle them by calling the incoming
         message's `handle` method
 
@@ -352,7 +285,7 @@ class Message(object):
         return schema
 
     @classmethod
-    async def create(cls, *args, **kwargs):
+    async def create(cls, *args, **kwargs) -> typing.Self:
         """create an instance of cls with the passed in fields and send it off
 
         Since this passed *args and **kwargs directly to .__init__, you can
@@ -369,14 +302,14 @@ class Message(object):
         return instance
 
     @classmethod
-    async def count(cls):
+    async def count(cls) -> int:
         """how many messages total (approximately) are in the whole message
         queue"""
         n = cls.get_name()
         return await cls.interface.count(n)
 
     @classmethod
-    def _from_recv(cls, fields):
+    def _from_recv(cls, fields) -> typing.Self:
         """This is used by the interface to populate an instance with
         information received from the interface
 
@@ -400,7 +333,7 @@ class Message(object):
 
         return instance
 
-    def _to_interface(self):
+    def _to_interface(self) -> dict:
         """When sending a message to the interface this method will be called
 
         :returns: dict, the fields
@@ -415,7 +348,7 @@ class Message(object):
 
         return fields
 
-    def _from_interface(self, fields):
+    def _from_interface(self, fields) -> None:
         """When receiving a message from the interface this method will
         be called
 
