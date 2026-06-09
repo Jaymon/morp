@@ -130,13 +130,17 @@ class Message(object):
         name = self.get_name()
         fields = self._to_interface()
         if queue_off:
-            logger.warning("DISABLED - Would have sent %s to %s",
+            logger.warning(
+                "DISABLED - Not sending %s message with %s fields to '%s'",
+                self.__class__.__name__,
                 fields,
                 name,
             )
 
         else:
-            logger.info("Sending message with '%s' keys to '%s'",
+            logger.info(
+                "Sending %s message with '%s' keys to '%s'",
+                self.__class__.__name__,
                 "', '".join(fields.keys()),
                 name,
             )
